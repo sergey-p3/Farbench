@@ -57,4 +57,36 @@ describe("metadata database", () => {
     expect(updated?.status).toBe("exited");
     expect(updated?.endedAt).toBe(ended?.endedAt);
   });
+
+  it("orders active sessions before closed history", () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const active = db.createSession({ workspaceId: workspace.id, name: "Active", type: "bash", tmuxName: "rd_active" });
+    db.updateSessionStatus(active.id, "running");
+    const closed = db.createSession({ workspaceId: workspace.id, name: "Closed", type: "bash", tmuxName: "rd_closed" });
+    db.updateSessionStatus(closed.id, "exited");
+
+    const sessions = db.listSessions(workspace.id);
+
+    expect(sessions.map((session) => session.id)).toEqual([active.id, closed.id]);
+  });
+
+  it("persists audit events for later review", () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+
+    db.recordAuditEvent({
+      type: "preview.create",
+      metadata: { workspaceId: workspace.id, port: 5173, allowed: true },
+    });
+
+    expect(db.listAuditEvents()).toEqual([
+      expect.objectContaining({
+        type: "preview.create",
+        metadata: { workspaceId: workspace.id, port: 5173, allowed: true },
+      }),
+    ]);
+  });
 });

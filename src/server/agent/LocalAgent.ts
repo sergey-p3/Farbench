@@ -16,6 +16,8 @@ const writeLocks = new Map<string, Promise<void>>();
 const noFollowReadOnlyFlags = constants.O_RDONLY | constants.O_NOFOLLOW;
 const noFollowReadWriteFlags = constants.O_RDWR | constants.O_NOFOLLOW;
 const noFollowDirectoryFlags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY;
+const maxTextFileBytes = 1_000_000;
+const binarySampleBytes = 8_192;
 
 function isLikelyBinary(buffer: Buffer): boolean {
   if (buffer.includes(0)) return true;
@@ -77,13 +79,15 @@ function resourceFor(
   isBinary = false,
 ): FileResource {
   const isDirectory = stats.isDirectory();
+  const tooLarge = !isDirectory && stats.size > maxTextFileBytes;
   return {
     path,
     type: isDirectory ? "directory" : "file",
     size: stats.size,
     mtimeMs: stats.mtimeMs,
     isBinary,
-    canWrite: !isDirectory,
+    canWrite: !isDirectory && !isBinary && !tooLarge,
+    tooLarge,
   };
 }
 
@@ -132,6 +136,9 @@ export class LocalAgent implements AgentGateway {
     try {
       await this.assertOpenHandleStillMatches(handle, input.rootPath, input.path, resolved.absolutePath);
       stats = await handle.stat();
+      if (stats.size > maxTextFileBytes) {
+        throw new Error("File is too large to open");
+      }
       buffer = await handle.readFile();
     } finally {
       await handle.close();
@@ -149,6 +156,9 @@ export class LocalAgent implements AgentGateway {
   }
 
   async writeFile(input: WriteFileInput): Promise<FileReadResponse> {
+    if (Buffer.byteLength(input.content, "utf8") > maxTextFileBytes) {
+      throw new Error("File is too large to save");
+    }
     const resolved = resolveWorkspacePath(input.rootPath, input.path);
     const lockKey = fileIdentityKey(await stat(resolved.absolutePath));
     return withWriteLock(lockKey, async () => {
@@ -162,6 +172,9 @@ export class LocalAgent implements AgentGateway {
         const [stats, pathStats] = await Promise.all([handle.stat(), stat(resolved.absolutePath)]);
         if (!isSameFileIdentity(stats, pathStats)) {
           throw new Error("File changed on disk");
+        }
+        if (stats.size > maxTextFileBytes) {
+          throw new Error("File is too large to save");
         }
 
         const buffer = await handle.readFile();
@@ -204,11 +217,17 @@ export class LocalAgent implements AgentGateway {
     try {
       await this.assertOpenHandleStillMatches(handle, rootPath, path, absolutePath);
       const stats = await handle.stat();
-      const isBinary = stats.isDirectory() ? false : isLikelyBinary(await handle.readFile());
+      const isBinary = stats.isDirectory() || stats.size > maxTextFileBytes ? false : isLikelyBinary(await this.readSample(handle, stats.size));
       return resourceFor(path, stats, isBinary);
     } finally {
       await handle.close();
     }
+  }
+
+  private async readSample(handle: { read(buffer: Buffer, offset: number, length: number, position: number): Promise<unknown> }, size: number) {
+    const buffer = Buffer.alloc(Math.min(size, binarySampleBytes));
+    await handle.read(buffer, 0, buffer.length, 0);
+    return buffer;
   }
 
   private async openForRead(path: string) {
@@ -312,6 +331,10 @@ export class LocalAgent implements AgentGateway {
 
   async captureScrollback(tmuxName: string): Promise<string> {
     return this.tmux.capture(tmuxName);
+  }
+
+  async terminalSessionExists(tmuxName: string): Promise<boolean> {
+    return this.tmux.exists(tmuxName);
   }
 
   async killSession(tmuxName: string): Promise<void> {

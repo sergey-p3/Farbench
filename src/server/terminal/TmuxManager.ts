@@ -38,6 +38,15 @@ export class TmuxManager {
     return runTmux(["capture-pane", "-p", "-S", "-2000", "-t", tmuxName]);
   }
 
+  async exists(tmuxName: string): Promise<boolean> {
+    try {
+      await runTmux(["has-session", "-t", tmuxName]);
+      return true;
+    } catch {
+      return false;
+    }
+  }
+
   async kill(tmuxName: string): Promise<void> {
     await runTmux(["kill-session", "-t", tmuxName]);
   }

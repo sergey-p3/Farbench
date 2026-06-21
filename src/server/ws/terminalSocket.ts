@@ -54,7 +54,13 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
         }
         send({ type: "scrollback", data: scrollback });
 
-        terminal = tmux.attach(session.tmuxName, message.cols, message.rows);
+        try {
+          terminal = tmux.attach(session.tmuxName, message.cols, message.rows);
+        } catch (error) {
+          db.updateSessionStatus(session.id, "exited");
+          send({ type: "error", error: error instanceof Error ? error.message : "terminal attach failed" });
+          return;
+        }
         const attachedTerminal = terminal;
         const attachedSessionId = session.id;
         db.touchSessionAttachment(session.id);

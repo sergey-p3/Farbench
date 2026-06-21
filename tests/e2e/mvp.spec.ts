@@ -57,6 +57,11 @@ test("owner can open workspace and see durable browser shell UI", async ({ page 
     await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
 
     await page.getByRole("button", { name: "files", exact: true }).click();
+    await page.getByRole("button", { name: /src/ }).click();
+    await page.getByRole("button", { name: /nested\.txt/ }).click();
+    await expect(page.getByLabel("File editor").getByText("src/nested.txt")).toBeVisible();
+    await expect(page.getByText("nested content")).toBeVisible();
+    await page.getByRole("button", { name: "Root" }).click();
     await expect(page.getByRole("button", { name: /app\.txt/ })).toBeVisible();
     await page.getByRole("button", { name: /app\.txt/ }).click();
     await expect(page.getByLabel("File editor").getByText("app.txt")).toBeVisible();

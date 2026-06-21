@@ -1,6 +1,6 @@
 import Database from "better-sqlite3";
 import { nanoid } from "nanoid";
-import type { Session, SessionStatus, SessionType, Workspace } from "../shared/types.js";
+import type { AuditEvent, Session, SessionStatus, SessionType, Workspace } from "../shared/types.js";
 
 interface WorkspaceInput {
   name: string;
@@ -14,6 +14,11 @@ interface SessionInput {
   tmuxName: string;
 }
 
+interface AuditEventInput {
+  type: string;
+  metadata: Record<string, string | number | boolean | null>;
+}
+
 export interface MetadataDb {
   upsertWorkspace(input: WorkspaceInput): Workspace;
   listWorkspaces(): Workspace[];
@@ -22,6 +27,9 @@ export interface MetadataDb {
   touchSessionAttachment(id: string): void;
   listSessions(workspaceId: string): Session[];
   getSession(id: string): Session | null;
+  listRecoverableSessions(): Session[];
+  recordAuditEvent(input: AuditEventInput): AuditEvent;
+  listAuditEvents(): AuditEvent[];
 }
 
 export function createDatabase(path: string): MetadataDb {
@@ -47,6 +55,12 @@ export function createDatabase(path: string): MetadataDb {
       ended_at text,
       foreign key(workspace_id) references workspaces(id)
     );
+    create table if not exists audit_events (
+      id text primary key,
+      type text not null,
+      created_at text not null,
+      metadata_json text not null
+    );
   `);
 
   const mapWorkspace = (row: any): Workspace => ({
@@ -67,6 +81,13 @@ export function createDatabase(path: string): MetadataDb {
     lastAttachedAt: row.last_attached_at,
     lastActivityAt: row.last_activity_at,
     endedAt: row.ended_at
+  });
+
+  const mapAuditEvent = (row: any): AuditEvent => ({
+    id: row.id,
+    type: row.type,
+    createdAt: row.created_at,
+    metadata: JSON.parse(row.metadata_json)
   });
 
   return {
@@ -108,13 +129,33 @@ export function createDatabase(path: string): MetadataDb {
         .run(new Date().toISOString(), id);
     },
     listSessions(workspaceId) {
-      return db.prepare("select * from sessions where workspace_id = ? order by created_at desc")
+      return db.prepare(`
+        select * from sessions where workspace_id = ?
+        order by
+          case when status in ('exited', 'crashed', 'killed') then 1 else 0 end,
+          created_at desc
+      `)
         .all(workspaceId)
         .map(mapSession);
     },
     getSession(id) {
       const row = db.prepare("select * from sessions where id = ?").get(id);
       return row ? mapSession(row) : null;
-    }
+    },
+    listRecoverableSessions() {
+      return db.prepare("select * from sessions where status not in ('exited', 'crashed', 'killed')")
+        .all()
+        .map(mapSession);
+    },
+    recordAuditEvent(input) {
+      const id = nanoid();
+      const now = new Date().toISOString();
+      db.prepare("insert into audit_events (id, type, created_at, metadata_json) values (?, ?, ?, ?)")
+        .run(id, input.type, now, JSON.stringify(input.metadata));
+      return mapAuditEvent(db.prepare("select * from audit_events where id = ?").get(id));
+    },
+    listAuditEvents() {
+      return db.prepare("select * from audit_events order by created_at desc").all().map(mapAuditEvent);
+    },
   };
 }

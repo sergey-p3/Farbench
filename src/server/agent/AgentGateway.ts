@@ -28,6 +28,7 @@ export interface AgentGateway {
   gitDiff(rootPath: string, path: string): Promise<string>;
   createTerminalSession(input: CreateSessionInput): Promise<{ tmuxName: string }>;
   captureScrollback(tmuxName: string): Promise<string>;
+  terminalSessionExists(tmuxName: string): Promise<boolean>;
   killSession(tmuxName: string): Promise<void>;
   createPreview(workspaceId: string, port: number): Promise<PortPreview>;
 }

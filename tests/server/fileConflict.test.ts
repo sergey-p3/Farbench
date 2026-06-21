@@ -128,6 +128,19 @@ describe("LocalAgent files", () => {
     ]);
   });
 
+  it("marks oversized files as not openable without reading the whole file", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    writeFileSync(join(root, "huge.txt"), "x".repeat(1_000_001));
+    const agent = new LocalAgent();
+
+    const resources = await agent.listFiles(root, "");
+
+    expect(resources).toEqual([
+      expect.objectContaining({ path: "huge.txt", type: "file", canWrite: false, tooLarge: true }),
+    ]);
+    await expect(agent.readFile({ rootPath: root, path: "huge.txt" })).rejects.toThrow("File is too large");
+  });
+
   it("lists internal symlinks by link name while enforcing workspace boundaries", async () => {
     root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
     writeFileSync(join(root, "actual.txt"), "first");

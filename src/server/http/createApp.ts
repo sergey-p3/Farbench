@@ -22,6 +22,10 @@ function httpError(status: number, message: string): Error & { status: number } 
   return Object.assign(new Error(message), { status });
 }
 
+function isFileConflict(error: unknown): boolean {
+  return error instanceof Error && error.message === "File changed on disk";
+}
+
 function asyncHandler(handler: AsyncHandler) {
   return (req: Request, res: Response, next: NextFunction): void => {
     void handler(req, res, next).catch(next);
@@ -50,10 +54,38 @@ function proxyHeaders(headers: IncomingHttpHeaders, port: number): IncomingHttpH
   return nextHeaders;
 }
 
-function proxyResponseHeaders(headers: IncomingHttpHeaders): IncomingHttpHeaders {
+function proxyResponseHeaders(headers: IncomingHttpHeaders, prefix: string): IncomingHttpHeaders {
   const nextHeaders = { ...headers };
   delete nextHeaders["set-cookie"];
+  const location = rewriteHeaderLocation(nextHeaders.location, prefix);
+  if (location) nextHeaders.location = location;
   return nextHeaders;
+}
+
+function rewriteHeaderLocation(location: IncomingHttpHeaders["location"], prefix: string): IncomingHttpHeaders["location"] {
+  if (typeof location === "string") return rewritePreviewPath(location, prefix);
+  return location;
+}
+
+function rewritePreviewPath(value: string, prefix: string): string {
+  if (!value.startsWith("/") || value.startsWith("//") || value.startsWith(prefix)) return value;
+  return `${prefix}${value}`;
+}
+
+function rewriteHtmlPreviewLinks(html: string, prefix: string): string {
+  return html
+    .replace(/\b(src|href|action)=(["'])(\/(?!\/)[^"']*)\2/g, (_match, attr: string, quote: string, path: string) => {
+      return `${attr}=${quote}${rewritePreviewPath(path, prefix)}${quote}`;
+    })
+    .replace(/url\((["']?)(\/(?!\/)[^"')]+)\1\)/g, (_match, quote: string, path: string) => {
+      return `url(${quote}${rewritePreviewPath(path, prefix)}${quote})`;
+    });
+}
+
+function isHtmlResponse(headers: IncomingHttpHeaders): boolean {
+  const contentType = headers["content-type"];
+  const value = Array.isArray(contentType) ? contentType.join(";") : contentType ?? "";
+  return value.toLowerCase().includes("text/html");
 }
 
 export async function createApp({ config, db }: CreateAppInput): Promise<Server> {
@@ -63,6 +95,24 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
   const agent = new LocalAgent();
   const previews = new Map<string, PortPreview>();
 
+  const recordAudit = (type: string, metadata: Record<string, string | number | boolean | null>): void => {
+    db.recordAuditEvent({ type, metadata });
+  };
+
+  const reconcileSessions = async (): Promise<void> => {
+    const sessions = db.listRecoverableSessions();
+    await Promise.all(
+      sessions.map(async (session) => {
+        if (!(await agent.terminalSessionExists(session.tmuxName))) {
+          db.updateSessionStatus(session.id, "exited");
+          recordAudit("session.reconciled_missing", { sessionId: session.id, workspaceId: session.workspaceId });
+        }
+      }),
+    );
+  };
+
+  await reconcileSessions();
+
   const getWorkspace = (workspaceId: string): Workspace => {
     const workspace = db.listWorkspaces().find((candidate) => candidate.id === workspaceId);
     if (!workspace) {
@@ -71,7 +121,11 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
     return workspace;
   };
 
-  app.post("/api/login", express.json({ limit: "2mb" }), auth.login);
+  app.post("/api/login", express.json({ limit: "2mb" }), (req, res) => {
+    const success = req.body?.token === config.authToken;
+    recordAudit(success ? "auth.login.success" : "auth.login.failure", { success });
+    auth.login(req, res);
+  });
   app.use("/api", express.json({ limit: "2mb" }));
   app.use("/api", auth.requireAuth);
 
@@ -79,10 +133,14 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
     res.json({ workspaces: db.listWorkspaces() });
   });
 
-  app.get("/api/workspaces/:workspaceId/sessions", (req, res) => {
-    getWorkspace(req.params.workspaceId);
-    res.json({ sessions: db.listSessions(req.params.workspaceId) });
-  });
+  app.get(
+    "/api/workspaces/:workspaceId/sessions",
+    asyncHandler(async (req, res) => {
+      getWorkspace(req.params.workspaceId);
+      await reconcileSessions();
+      res.json({ sessions: db.listSessions(req.params.workspaceId) });
+    }),
+  );
 
   app.post(
     "/api/workspaces/:workspaceId/sessions",
@@ -103,6 +161,7 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
         tmuxName: terminal.tmuxName,
       });
       db.updateSessionStatus(session.id, "running");
+      recordAudit("session.create", { sessionId: session.id, workspaceId: workspace.id, type });
       res.json({ session: db.getSession(session.id) ?? session });
     }),
   );
@@ -112,7 +171,9 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
     asyncHandler(async (req, res) => {
       const workspace = getWorkspace(req.params.workspaceId);
       const path = typeof req.query.path === "string" ? req.query.path : ".";
-      res.json({ files: await agent.listFiles(workspace.rootPath, path) });
+      const files = await agent.listFiles(workspace.rootPath, path);
+      recordAudit("files.list", { workspaceId: workspace.id, path });
+      res.json({ files });
     }),
   );
 
@@ -121,7 +182,9 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
     asyncHandler(async (req, res) => {
       const workspace = getWorkspace(req.params.workspaceId);
       const path = typeof req.query.path === "string" ? req.query.path : "";
-      res.json(await agent.readFile({ rootPath: workspace.rootPath, path }));
+      const file = await agent.readFile({ rootPath: workspace.rootPath, path });
+      recordAudit("file.read", { workspaceId: workspace.id, path });
+      res.json(file);
     }),
   );
 
@@ -134,7 +197,14 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
         res.status(400).json({ error: "path, content, and expectedVersion are required" });
         return;
       }
-      res.json(await agent.writeFile({ rootPath: workspace.rootPath, path, content, expectedVersion }));
+      try {
+        const file = await agent.writeFile({ rootPath: workspace.rootPath, path, content, expectedVersion });
+        recordAudit("file.write", { workspaceId: workspace.id, path });
+        res.json(file);
+      } catch (error) {
+        if (isFileConflict(error)) throw httpError(409, "File changed on disk");
+        throw error;
+      }
     }),
   );
 
@@ -142,7 +212,9 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
     "/api/workspaces/:workspaceId/git/status",
     asyncHandler(async (req, res) => {
       const workspace = getWorkspace(req.params.workspaceId);
-      res.json(await agent.gitStatus(workspace.rootPath));
+      const status = await agent.gitStatus(workspace.rootPath);
+      recordAudit("git.status", { workspaceId: workspace.id });
+      res.json(status);
     }),
   );
 
@@ -155,7 +227,9 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
         res.status(400).json({ error: "missing path" });
         return;
       }
-      res.type("text/plain").send(await agent.gitDiff(workspace.rootPath, path));
+      const diff = await agent.gitDiff(workspace.rootPath, path);
+      recordAudit("git.diff", { workspaceId: workspace.id, path });
+      res.type("text/plain").send(diff);
     }),
   );
 
@@ -166,6 +240,7 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
       const port = requestPort(req.body?.port);
       const preview = await agent.createPreview(workspace.id, port);
       previews.set(preview.id, preview);
+      recordAudit("preview.create", { workspaceId: workspace.id, previewId: preview.id, port });
       res.json({ preview });
     }),
   );
@@ -189,10 +264,21 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
       },
       (upstreamResponse) => {
         res.statusCode = upstreamResponse.statusCode ?? 502;
-        for (const [name, value] of Object.entries(proxyResponseHeaders(upstreamResponse.headers))) {
+        const responseHeaders = proxyResponseHeaders(upstreamResponse.headers, prefix);
+        if (isHtmlResponse(upstreamResponse.headers)) delete responseHeaders["content-length"];
+        for (const [name, value] of Object.entries(responseHeaders)) {
           if (value !== undefined) res.setHeader(name, value);
         }
-        upstreamResponse.pipe(res);
+        if (!isHtmlResponse(upstreamResponse.headers)) {
+          upstreamResponse.pipe(res);
+          return;
+        }
+
+        const chunks: Buffer[] = [];
+        upstreamResponse.on("data", (chunk: Buffer) => chunks.push(chunk));
+        upstreamResponse.on("end", () => {
+          res.end(rewriteHtmlPreviewLinks(Buffer.concat(chunks).toString("utf8"), prefix));
+        });
       },
     );
 

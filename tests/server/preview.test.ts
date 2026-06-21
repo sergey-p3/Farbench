@@ -201,4 +201,63 @@ describe("manual preview proxy", () => {
     expect(response.status).toBe(502);
     expect(await response.text()).toBe("preview target unavailable");
   });
+
+  it("keeps common absolute HTML assets and redirects inside the preview prefix", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    const target = http.createServer((req, res) => {
+      if (req.url === "/redirect") {
+        res.statusCode = 302;
+        res.setHeader("location", "/next");
+        res.end();
+        return;
+      }
+      if (req.url === "/src/main.js") {
+        res.setHeader("content-type", "application/javascript");
+        res.end("window.previewAsset = true;");
+        return;
+      }
+
+      res.setHeader("content-type", "text/html; charset=utf-8");
+      res.end('<!doctype html><script src="/src/main.js"></script><a href="/next">next</a>');
+    });
+    servers.push(target);
+    const targetPort = await listen(target);
+
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const config: ServerConfig = {
+      host: "127.0.0.1",
+      port: 0,
+      workspacePath: dir,
+      workspaceName: "demo",
+      dataDir: dir,
+      authToken: "dev-password",
+    };
+    const app = await createApp({ config, db });
+    servers.push(app);
+    const appPort = await listen(app);
+    const baseUrl = `http://127.0.0.1:${appPort}`;
+    const login = await fetch(`${baseUrl}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "dev-password" }),
+    });
+    const cookie = login.headers.get("set-cookie") ?? "";
+    const createPreview = await fetch(`${baseUrl}/api/workspaces/${workspace.id}/previews`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ port: targetPort }),
+    });
+    const { preview } = (await createPreview.json()) as { preview: PortPreview };
+
+    const html = await fetch(`${baseUrl}${preview.pathPrefix}/`, { headers: { cookie } });
+    expect(await html.text()).toContain(`src="${preview.pathPrefix}/src/main.js"`);
+
+    const redirect = await fetch(`${baseUrl}${preview.pathPrefix}/redirect`, {
+      headers: { cookie },
+      redirect: "manual",
+    });
+    expect(redirect.status).toBe(302);
+    expect(redirect.headers.get("location")).toBe(`${preview.pathPrefix}/next`);
+  });
 });

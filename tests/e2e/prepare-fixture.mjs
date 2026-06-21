@@ -11,14 +11,16 @@ rmSync(workspace, { force: true, recursive: true });
 rmSync(dataDir, { force: true, recursive: true });
 mkdirSync(workspace, { recursive: true });
 mkdirSync(dataDir, { recursive: true });
+mkdirSync(resolve(workspace, "src"), { recursive: true });
 
 writeFileSync(resolve(workspace, "README.md"), "# E2E workspace\n\nInitial content.\n");
 writeFileSync(resolve(workspace, "app.txt"), "first line\noriginal line\n");
+writeFileSync(resolve(workspace, "src", "nested.txt"), "nested content\n");
 
 execFileSync("git", ["init"], { cwd: workspace, stdio: "ignore" });
 execFileSync("git", ["config", "user.email", "e2e@example.com"], { cwd: workspace, stdio: "ignore" });
 execFileSync("git", ["config", "user.name", "E2E"], { cwd: workspace, stdio: "ignore" });
-execFileSync("git", ["add", "README.md", "app.txt"], { cwd: workspace, stdio: "ignore" });
+execFileSync("git", ["add", "README.md", "app.txt", "src/nested.txt"], { cwd: workspace, stdio: "ignore" });
 execFileSync("git", ["commit", "-m", "initial"], { cwd: workspace, stdio: "ignore" });
 
 writeFileSync(resolve(workspace, "app.txt"), "first line\nchanged line\n");

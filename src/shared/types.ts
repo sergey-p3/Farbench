@@ -40,6 +40,7 @@ export interface FileResource {
   mtimeMs: number;
   isBinary: boolean;
   canWrite: boolean;
+  tooLarge: boolean;
 }
 
 export interface FileReadResponse {

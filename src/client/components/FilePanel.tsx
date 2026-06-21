@@ -10,10 +10,12 @@ interface FilePanelProps {
 export function FilePanel({ workspace }: FilePanelProps) {
   const workspaceIdRef = useRef<string | null>(workspace?.id ?? null);
   const selectedPathRef = useRef<string | null>(null);
+  const currentPathRef = useRef(".");
   const filesRequestRef = useRef(0);
   const openRequestRef = useRef(0);
   const saveRequestRef = useRef(0);
   const [files, setFiles] = useState<FileResource[]>([]);
+  const [currentPath, setCurrentPath] = useState(".");
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [content, setContent] = useState("");
   const [savedContent, setSavedContent] = useState("");
@@ -23,7 +25,10 @@ export function FilePanel({ workspace }: FilePanelProps) {
   const [error, setError] = useState<string | null>(null);
 
   const dirty = selectedPath !== null && content !== savedContent;
-  const openableFiles = useMemo(() => files.filter((file) => file.type === "file" && !file.isBinary), [files]);
+  const openableFiles = useMemo(
+    () => files.filter((file) => file.type === "file" && !file.isBinary && !file.tooLarge),
+    [files],
+  );
 
   useEffect(() => {
     selectedPathRef.current = selectedPath;
@@ -35,6 +40,8 @@ export function FilePanel({ workspace }: FilePanelProps) {
     openRequestRef.current += 1;
     saveRequestRef.current += 1;
     setFiles([]);
+    setCurrentPath(".");
+    currentPathRef.current = ".";
     setSelectedPath(null);
     selectedPathRef.current = null;
     setContent("");
@@ -45,22 +52,31 @@ export function FilePanel({ workspace }: FilePanelProps) {
     setError(null);
 
     if (!workspace) return;
-    void loadFiles(workspace.id, filesRequestRef.current);
+    void loadFiles(workspace.id, ".", filesRequestRef.current);
   }, [workspace?.id]);
 
-  async function loadFiles(workspaceId: string, requestId: number) {
+  async function loadFiles(workspaceId: string, path: string, requestId: number) {
     setIsLoading(true);
     setError(null);
     try {
-      const nextFiles = await api.files(workspaceId);
-      if (!isCurrentFilesRequest(workspaceId, requestId)) return;
+      const nextFiles = await api.files(workspaceId, path);
+      if (!isCurrentFilesRequest(workspaceId, path, requestId)) return;
       setFiles(nextFiles);
+      setCurrentPath(path);
+      currentPathRef.current = path;
     } catch (loadError) {
-      if (!isCurrentFilesRequest(workspaceId, requestId)) return;
+      if (!isCurrentFilesRequest(workspaceId, path, requestId)) return;
       setError(panelError(loadError, "Unable to load files"));
     } finally {
-      if (isCurrentFilesRequest(workspaceId, requestId)) setIsLoading(false);
+      if (isCurrentFilesRequest(workspaceId, path, requestId)) setIsLoading(false);
     }
+  }
+
+  async function openDirectory(path: string) {
+    if (!workspace) return;
+    const requestId = ++filesRequestRef.current;
+    currentPathRef.current = path;
+    await loadFiles(workspace.id, path, requestId);
   }
 
   async function openFile(path: string) {
@@ -106,8 +122,8 @@ export function FilePanel({ workspace }: FilePanelProps) {
     }
   }
 
-  function isCurrentFilesRequest(workspaceId: string, requestId: number): boolean {
-    return workspaceIdRef.current === workspaceId && filesRequestRef.current === requestId;
+  function isCurrentFilesRequest(workspaceId: string, path: string, requestId: number): boolean {
+    return workspaceIdRef.current === workspaceId && currentPathRef.current === path && filesRequestRef.current === requestId;
   }
 
   function isCurrentOpenRequest(workspaceId: string, path: string, requestId: number): boolean {
@@ -130,24 +146,33 @@ export function FilePanel({ workspace }: FilePanelProps) {
     <div className="tool-panel file-panel">
       <aside className="file-list" aria-label="Workspace files">
         <div className="panel-toolbar">
-          <strong>Files</strong>
+          <strong>{currentPath === "." ? "Files" : currentPath}</strong>
           <span>{openableFiles.length}</span>
+        </div>
+        <div className="file-nav">
+          <button disabled={currentPath === "."} onClick={() => void openDirectory(".")} type="button">
+            Root
+          </button>
+          <button disabled={currentPath === "."} onClick={() => void openDirectory(parentPath(currentPath))} type="button">
+            Up
+          </button>
         </div>
         {isLoading && files.length === 0 ? <p className="loading-state compact">Loading files...</p> : null}
         <div className="file-buttons">
           {files.map((file) => {
-            const openable = file.type === "file" && !file.isBinary;
+            const openable = file.type === "file" && !file.isBinary && !file.tooLarge;
+            const label = file.type === "directory" ? "directory" : file.tooLarge ? "too large" : file.isBinary ? "binary" : `${file.size} bytes`;
             return (
               <button
                 className={file.path === selectedPath ? "file-button selected" : "file-button"}
-                disabled={!openable}
+                disabled={file.type === "file" && !openable}
                 key={file.path}
-                onClick={() => void openFile(file.path)}
+                onClick={() => file.type === "directory" ? void openDirectory(file.path) : void openFile(file.path)}
                 title={file.path}
                 type="button"
               >
                 <span>{file.path}</span>
-                <small>{file.type === "directory" ? "directory" : file.isBinary ? "binary" : `${file.size} bytes`}</small>
+                <small>{label}</small>
               </button>
             );
           })}
@@ -199,6 +224,11 @@ function languageForPath(path: string): string {
 
 function isConflict(error: unknown): boolean {
   return error instanceof ApiError && error.status === 409;
+}
+
+function parentPath(path: string): string {
+  if (path === "." || !path.includes("/")) return ".";
+  return path.slice(0, path.lastIndexOf("/"));
 }
 
 function panelError(error: unknown, fallback: string): string {
