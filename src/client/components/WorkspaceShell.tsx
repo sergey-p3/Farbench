@@ -2,6 +2,7 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserLayout, SessionType, Workspace, WorkspaceItem } from "../../shared/types.js";
 import { api, isUnauthorized } from "../api.js";
 import {
+  MAIN_PANE_ID,
   activeItem,
   addItemAndFocus,
   focusItem,
@@ -32,7 +33,8 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
     () => workspaces.find((workspace) => workspace.id === layout.selectedWorkspaceId) ?? null,
     [layout.selectedWorkspaceId, workspaces],
   );
-  const active = activeItem(layout);
+  const currentActive = activeItem(layout);
+  const active = currentActive?.workspaceId === layout.selectedWorkspaceId ? currentActive : null;
   const visibleItems = itemsForWorkspace(layout, layout.selectedWorkspaceId);
 
   useEffect(() => {
@@ -55,13 +57,15 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
       const preferredWorkspaceId = selectedWorkspaceIdRef.current;
       const nextWorkspace = nextWorkspaces.find((workspace) => workspace.id === preferredWorkspaceId) ?? nextWorkspaces[0] ?? null;
       if (!nextWorkspace) {
-        setLayout((current) => normalizeLayout({ ...current, selectedWorkspaceId: null, items: [], panes: [{ id: "main", activeItemId: null, itemIds: [] }] }));
+        setLayout((current) => normalizeLayout({ ...current, selectedWorkspaceId: null, items: [], panes: [{ id: MAIN_PANE_ID, activeItemId: null, itemIds: [] }] }));
         return;
       }
+      selectedWorkspaceIdRef.current = nextWorkspace.id;
+      setLayout((current) => normalizeLayout({ ...current, selectedWorkspaceId: nextWorkspace.id }));
       await loadSessionsForWorkspace(nextWorkspace.id, requestId);
     } catch (loadError) {
       const message = handleApiError(loadError, "Unable to load workspaces");
-      if (message) setError(message);
+      if (message && isCurrentRequest(requestId)) setError(message);
     } finally {
       if (isCurrentRequest(requestId)) setIsLoading(false);
     }
@@ -78,7 +82,7 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
       await loadSessionsForWorkspace(workspaceId, requestId);
     } catch (loadError) {
       const message = handleApiError(loadError, "Unable to load sessions");
-      if (message) setError(message);
+      if (message && isCurrentWorkspaceRequest(workspaceId, requestId)) setError(message);
     } finally {
       if (isCurrentRequest(requestId)) setIsLoading(false);
     }
@@ -86,7 +90,7 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
 
   async function loadSessionsForWorkspace(workspaceId: string, requestId: number) {
     const sessions = await api.sessions(workspaceId);
-    if (!isCurrentRequest(requestId)) return;
+    if (!isCurrentWorkspaceRequest(workspaceId, requestId)) return;
     selectedWorkspaceIdRef.current = workspaceId;
     setLayout((current) => reconcileSessions(current, workspaceId, sessions));
   }
@@ -94,16 +98,17 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
   async function createSession(type: SessionType) {
     if (!layout.selectedWorkspaceId) return;
     const workspaceId = layout.selectedWorkspaceId;
+    const requestId = nextRequestId();
     try {
       const session = await api.createSession(workspaceId, type, `${type} session`);
-      const requestId = nextRequestId();
+      if (!isCurrentWorkspaceRequest(workspaceId, requestId)) return;
       selectedWorkspaceIdRef.current = workspaceId;
       const sessions = await api.sessions(workspaceId);
-      if (!isCurrentRequest(requestId)) return;
+      if (!isCurrentWorkspaceRequest(workspaceId, requestId)) return;
       setLayout((current) => focusItem(reconcileSessions(current, workspaceId, sessions), `session:${session.id}`));
     } catch (createError) {
       const message = handleApiError(createError, "Unable to create session");
-      if (message) throw new Error(message);
+      if (message && isCurrentWorkspaceRequest(workspaceId, requestId)) throw new Error(message);
     }
   }
 
@@ -123,6 +128,10 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
 
   function isCurrentRequest(requestId: number): boolean {
     return requestId === requestRef.current;
+  }
+
+  function isCurrentWorkspaceRequest(workspaceId: string, requestId: number): boolean {
+    return isCurrentRequest(requestId) && selectedWorkspaceIdRef.current === workspaceId;
   }
 
   function handleApiError(loadError: unknown, fallbackMessage: string): string | null {
