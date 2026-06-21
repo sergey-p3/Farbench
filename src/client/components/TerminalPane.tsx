@@ -1,7 +1,8 @@
-import { useEffect, useRef, useState } from "react";
+import { useCallback, useEffect, useRef, useState } from "react";
 import { FitAddon } from "xterm-addon-fit";
 import { Terminal } from "xterm";
 import { api, isUnauthorized } from "../api.js";
+import { terminalControlSequence, terminalKeyLabels, type TerminalToolbarKey } from "../terminalKeys.js";
 
 interface TerminalPaneProps {
   sessionId: string | null;
@@ -21,15 +22,38 @@ export function terminalSocketUrl(locationLike: Pick<Location, "protocol" | "hos
 }
 
 export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: TerminalPaneProps) {
+  const rootRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
+  const [isCtrlActive, setIsCtrlActive] = useState(false);
+
+  const sendTerminalInput = useCallback((data: string) => {
+    const socket = socketRef.current;
+    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    socket.send(JSON.stringify({ type: "input", data }));
+  }, []);
+
+  const handleToolbarKey = useCallback((key: TerminalToolbarKey) => {
+    if (key === "ctrl") {
+      setIsCtrlActive((current) => !current);
+      terminalRef.current?.focus();
+      return;
+    }
+
+    const sequence = terminalControlSequence(key, isCtrlActive);
+    if (!sequence) return;
+    sendTerminalInput(sequence.data);
+    if (sequence.clearsCtrl) setIsCtrlActive(false);
+    terminalRef.current?.focus();
+  }, [isCtrlActive, sendTerminalInput]);
 
   useEffect(() => {
     setStatus(null);
+    setIsCtrlActive(false);
 
     if (!sessionId || !containerRef.current) {
       return;
@@ -69,17 +93,28 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
     };
 
-    const handleResize = () => {
+    const fitAndResize = () => {
       fit();
       sendResize();
     };
 
-    fit();
-    window.addEventListener("resize", handleResize);
-    const dataDisposable = terminal.onData((data) => {
-      if (isCurrentSocket() && socket.readyState === WebSocket.OPEN) {
-        socket.send(JSON.stringify({ type: "input", data }));
+    const syncVisualViewport = () => {
+      const viewport = window.visualViewport;
+      if (rootRef.current && viewport) {
+        rootRef.current.style.setProperty("--terminal-visual-height", `${viewport.height}px`);
       }
+      fitAndResize();
+    };
+
+    syncVisualViewport();
+    window.addEventListener("resize", syncVisualViewport);
+    window.visualViewport?.addEventListener("resize", syncVisualViewport);
+    window.visualViewport?.addEventListener("scroll", syncVisualViewport);
+    const resizeObserver = new ResizeObserver(fitAndResize);
+    resizeObserver.observe(containerRef.current);
+    const dataDisposable = terminal.onData((data) => {
+      setIsCtrlActive(false);
+      sendTerminalInput(data);
     });
 
     socket.addEventListener("open", () => {
@@ -150,7 +185,10 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     }
 
     return () => {
-      window.removeEventListener("resize", handleResize);
+      window.removeEventListener("resize", syncVisualViewport);
+      window.visualViewport?.removeEventListener("resize", syncVisualViewport);
+      window.visualViewport?.removeEventListener("scroll", syncVisualViewport);
+      resizeObserver.disconnect();
       dataDisposable.dispose();
       if (socketRef.current === socket) socketRef.current = null;
       if (terminalRef.current === terminal) terminalRef.current = null;
@@ -158,7 +196,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       socket.close();
       terminal.dispose();
     };
-  }, [onUnauthorized, retryNonce, sessionId]);
+  }, [onUnauthorized, retryNonce, sendTerminalInput, sessionId]);
 
   if (!sessionId) {
     return (
@@ -170,7 +208,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   }
 
   return (
-    <div className="tool-panel terminal-pane">
+    <div className="tool-panel terminal-pane" ref={rootRef}>
       {status ? (
         <div className="panel-error terminal-status" role="status">
           <span>{status}</span>
@@ -181,6 +219,20 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
         </div>
       ) : null}
       <div className="terminal-host" ref={containerRef} />
+      <div className="terminal-keybar" role="toolbar" aria-label="Terminal special keys">
+        {terminalKeyLabels.map((key) => (
+          <button
+            aria-label={key.ariaLabel}
+            aria-pressed={key.key === "ctrl" ? isCtrlActive : undefined}
+            className={key.key === "ctrl" && isCtrlActive ? "active" : undefined}
+            key={key.key}
+            onClick={() => handleToolbarKey(key.key)}
+            type="button"
+          >
+            {key.label}
+          </button>
+        ))}
+      </div>
     </div>
   );
 }

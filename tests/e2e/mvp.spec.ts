@@ -1,5 +1,6 @@
 import { createServer, type Server } from "node:http";
 import { expect, test } from "@playwright/test";
+import type { Session } from "../../src/shared/types.js";
 
 async function startPreviewServer(): Promise<{ port: number; server: Server }> {
   const server = createServer((_request, response) => {
@@ -97,4 +98,63 @@ test("owner uses mobile focused item shell and restores last active item", async
   } finally {
     await closeServer(preview.server);
   }
+});
+
+test("mobile terminal exposes special keys and stays inside a reduced viewport", async ({ page }) => {
+  let terminalSession: Session | null = null;
+
+  await page.route("**/api/workspaces/*/sessions", async (route) => {
+    const request = route.request();
+    const workspaceId = decodeURIComponent(new URL(request.url()).pathname.split("/")[3] ?? "workspace");
+
+    if (request.method() === "POST") {
+      terminalSession = {
+        id: "e2e-terminal-session",
+        workspaceId,
+        name: "bash session",
+        type: "bash",
+        tmuxName: "e2e-terminal-session",
+        status: "running",
+        createdAt: "2026-06-21T00:00:00.000Z",
+        lastAttachedAt: null,
+        lastActivityAt: null,
+        endedAt: null,
+      };
+      await route.fulfill({ contentType: "application/json", json: { session: terminalSession } });
+      return;
+    }
+
+    if (request.method() === "GET") {
+      await route.fulfill({ contentType: "application/json", json: { sessions: terminalSession ? [terminalSession] : [] } });
+      return;
+    }
+
+    await route.continue();
+  });
+
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.context().clearCookies();
+  await page.goto("/");
+
+  await page.getByLabel("Access token").fill("dev-password");
+  await page.getByRole("button", { name: "Connect" }).click();
+  await page.getByRole("button", { name: "Create item" }).click();
+  await page.getByRole("button", { name: "Terminal" }).click();
+
+  const toolbar = page.getByRole("toolbar", { name: "Terminal special keys" });
+  await expect(toolbar.getByRole("button", { name: "Sticky Control modifier" })).toBeVisible();
+  await expect(toolbar.getByRole("button", { name: "Escape" })).toBeVisible();
+  await expect(toolbar.getByRole("button", { name: "Left arrow" })).toBeVisible();
+  await expect(toolbar.getByRole("button", { name: "Up arrow" })).toBeVisible();
+
+  await page.setViewportSize({ width: 390, height: 520 });
+  await expect(toolbar).toBeVisible();
+  const paneBox = await page.getByLabel("Focused item").boundingBox();
+  const toolbarBox = await toolbar.boundingBox();
+
+  expect(paneBox).not.toBeNull();
+  expect(toolbarBox).not.toBeNull();
+  if (!paneBox || !toolbarBox) throw new Error("Unable to measure terminal layout");
+  expect(Math.round(paneBox.y + paneBox.height)).toBeLessThanOrEqual(520);
+  expect(Math.round(toolbarBox.y + toolbarBox.height)).toBeLessThanOrEqual(520);
 });

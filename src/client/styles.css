@@ -438,6 +438,8 @@ button.secondary-button {
 
 .terminal-pane {
   height: 100%;
+  --terminal-visual-height: 100vh;
+  grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
 }
 
@@ -453,10 +455,49 @@ button.secondary-button {
   min-width: 0;
   overflow: hidden;
   padding: 8px;
+  touch-action: pan-y;
 }
 
-.terminal-host .xterm {
+.terminal-host .xterm,
+.terminal-host .xterm-screen {
   height: 100%;
+}
+
+.terminal-host .xterm-viewport {
+  overflow-y: auto !important;
+  -webkit-overflow-scrolling: touch;
+}
+
+.terminal-keybar {
+  align-items: center;
+  background: #0d141b;
+  border-top: 1px solid #22313f;
+  display: flex;
+  gap: 6px;
+  grid-row: 3;
+  min-height: 44px;
+  overflow-x: auto;
+  padding: 6px 8px;
+}
+
+.terminal-keybar button {
+  background: #182533;
+  border: 1px solid #344657;
+  border-radius: 6px;
+  color: #d7dee8;
+  flex: 0 0 auto;
+  font-size: 0.82rem;
+  font-weight: 700;
+  min-height: 32px;
+  min-width: 42px;
+  padding: 6px 9px;
+}
+
+.terminal-keybar button.active,
+.terminal-keybar button[aria-pressed="true"] {
+  background: #edf6f8;
+  border-color: #5a9aaa;
+  color: #101820;
 }
 
 .file-panel,
@@ -707,6 +748,10 @@ button.secondary-button {
 @media (max-width: 760px) {
   .session-chip {
     max-width: 100%;
+  }
+
+  .terminal-pane {
+    max-height: calc(var(--terminal-visual-height) - 58px);
   }
 
   .file-panel,
