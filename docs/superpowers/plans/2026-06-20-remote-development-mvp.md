@@ -83,7 +83,7 @@ Create `package.json` with:
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
-    "@vitejs/plugin-react": "^5.0.0",
+    "@vitejs/plugin-react": "^4.7.0",
     "better-sqlite3": "^11.8.1",
     "cookie": "^1.0.2",
     "express": "^4.21.2",
@@ -99,7 +99,7 @@ Create `package.json` with:
     "@playwright/test": "^1.49.1",
     "@types/better-sqlite3": "^7.6.12",
     "@types/cookie": "^0.6.0",
-    "@types/express": "^5.0.0",
+    "@types/express": "^4.17.25",
     "@types/node": "^22.10.2",
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
