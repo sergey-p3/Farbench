@@ -4,12 +4,15 @@ import { api, isUnauthorized } from "../api.js";
 
 interface PreviewPanelProps {
   workspace: Workspace | null;
+  initialPort?: number;
+  initialPath?: string;
 }
 
-export function PreviewPanel({ workspace }: PreviewPanelProps) {
+export function PreviewPanel({ workspace, initialPort = 3000, initialPath = "/" }: PreviewPanelProps) {
   const workspaceIdRef = useRef<string | null>(workspace?.id ?? null);
   const previewRequestRef = useRef(0);
-  const [port, setPort] = useState(3000);
+  const [port, setPort] = useState(initialPort);
+  const [pathPrefix, setPathPrefix] = useState(initialPath);
   const [preview, setPreview] = useState<PortPreview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -20,7 +23,9 @@ export function PreviewPanel({ workspace }: PreviewPanelProps) {
     setPreview(null);
     setIsLoading(false);
     setError(null);
-  }, [workspace?.id]);
+    setPort(initialPort);
+    setPathPrefix(initialPath);
+  }, [initialPath, initialPort, workspace?.id]);
 
   async function exposePreview() {
     if (!workspace) return;
@@ -63,6 +68,14 @@ export function PreviewPanel({ workspace }: PreviewPanelProps) {
             onChange={(event) => setPort(Number(event.target.value))}
             type="number"
             value={port}
+          />
+        </label>
+        <label className="field compact-field">
+          <span>Path</span>
+          <input
+            onChange={(event) => setPathPrefix(event.target.value)}
+            type="text"
+            value={pathPrefix}
           />
         </label>
         <button disabled={isLoading || !Number.isInteger(port) || port < 1 || port > 65535} onClick={() => void exposePreview()} type="button">
