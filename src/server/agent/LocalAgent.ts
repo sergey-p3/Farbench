@@ -32,6 +32,12 @@ function isSameFileIdentity(a: { dev: number; ino: number }, b: { dev: number; i
   return a.dev === b.dev && a.ino === b.ino;
 }
 
+function assertSameResolvedTarget(currentAbsolutePath: string, originalAbsolutePath: string): void {
+  if (currentAbsolutePath !== originalAbsolutePath) {
+    throw new Error("File changed on disk");
+  }
+}
+
 async function withWriteLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
   const previous = writeLocks.get(key) ?? Promise.resolve();
   let release: () => void = () => {};
@@ -77,6 +83,7 @@ export class LocalAgent implements AgentGateway {
         const childPath = join(resolved.relativePath, entry.name);
         const child = resolveWorkspacePath(rootPath, childPath);
         await this.beforeListChildOpen();
+        assertSameResolvedTarget(resolveWorkspacePath(rootPath, childPath).absolutePath, child.absolutePath);
         return this.readResourceMetadata(childPath, child.absolutePath);
       }),
     );
@@ -90,6 +97,7 @@ export class LocalAgent implements AgentGateway {
   async readFile(input: { rootPath: string; path: string }): Promise<FileReadResponse> {
     const resolved = resolveWorkspacePath(input.rootPath, input.path);
     await this.beforeReadOpen();
+    assertSameResolvedTarget(resolveWorkspacePath(input.rootPath, input.path).absolutePath, resolved.absolutePath);
     const handle = await this.openForRead(resolved.absolutePath);
     let stats: Stats;
     let buffer: Buffer;
@@ -115,6 +123,7 @@ export class LocalAgent implements AgentGateway {
     const resolved = resolveWorkspacePath(input.rootPath, input.path);
     return withWriteLock(resolved.absolutePath, async () => {
       await this.beforeWriteOpen();
+      assertSameResolvedTarget(resolveWorkspacePath(input.rootPath, input.path).absolutePath, resolved.absolutePath);
       const handle = await this.openForWrite(resolved.absolutePath);
       try {
         await this.beforeWriteVersionCheck();

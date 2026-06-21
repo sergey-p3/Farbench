@@ -192,7 +192,7 @@ describe("LocalAgent files", () => {
         content: "browser edit",
         expectedVersion: read.version,
       }),
-    ).rejects.toThrow("File changed on disk");
+    ).rejects.toThrow("Path escapes workspace");
     expect(readFileSync(outsidePath, "utf8")).toBe("first");
   });
 
@@ -208,6 +208,48 @@ describe("LocalAgent files", () => {
     agent.symlinkTargetPath = outsidePath;
 
     await expect(agent.readFile({ rootPath: root, path: "note.txt" })).rejects.toThrow("Path escapes workspace");
+  });
+
+  it("rejects when an internal symlink read alias is swapped to an outside symlink", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    const actualPath = join(root, "actual.txt");
+    const aliasPath = join(root, "alias.txt");
+    const outsidePath = join(outsideRoot, "outside.txt");
+    writeFileSync(actualPath, "inside content");
+    writeFileSync(outsidePath, "outside secret");
+    symlinkSync("actual.txt", aliasPath);
+    const agent = new RacingLocalAgent();
+    agent.racePath = aliasPath;
+    agent.symlinkTargetPath = outsidePath;
+
+    await expect(agent.readFile({ rootPath: root, path: "alias.txt" })).rejects.toThrow("Path escapes workspace");
+  });
+
+  it("rejects when an internal symlink write alias is swapped to an outside symlink before mutation", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    const actualPath = join(root, "actual.txt");
+    const aliasPath = join(root, "alias.txt");
+    const outsidePath = join(outsideRoot, "outside.txt");
+    writeFileSync(actualPath, "inside content");
+    writeFileSync(outsidePath, "outside content");
+    symlinkSync("actual.txt", aliasPath);
+    const agent = new RacingLocalAgent();
+    const read = await agent.readFile({ rootPath: root, path: "alias.txt" });
+    agent.racePath = aliasPath;
+    agent.symlinkTargetPath = outsidePath;
+
+    await expect(
+      agent.writeFile({
+        rootPath: root,
+        path: "alias.txt",
+        content: "browser edit",
+        expectedVersion: read.version,
+      }),
+    ).rejects.toThrow("Path escapes workspace");
+    expect(readFileSync(actualPath, "utf8")).toBe("inside content");
+    expect(readFileSync(outsidePath, "utf8")).toBe("outside content");
   });
 
   it("rejects when a checked list child is swapped to an outside symlink", async () => {
