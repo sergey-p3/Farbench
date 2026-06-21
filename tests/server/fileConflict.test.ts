@@ -39,6 +39,22 @@ describe("LocalAgent files", () => {
       this.symlinkTargetPath = null;
     }
 
+    protected async beforeReadOpen(): Promise<void> {
+      if (!this.racePath || !this.symlinkTargetPath) return;
+      unlinkSync(this.racePath);
+      symlinkSync(this.symlinkTargetPath, this.racePath);
+      this.racePath = null;
+      this.symlinkTargetPath = null;
+    }
+
+    protected async beforeListChildOpen(): Promise<void> {
+      if (!this.racePath || !this.symlinkTargetPath) return;
+      unlinkSync(this.racePath);
+      symlinkSync(this.symlinkTargetPath, this.racePath);
+      this.racePath = null;
+      this.symlinkTargetPath = null;
+    }
+
     protected async beforeWriteVersionCheck(): Promise<void> {
       if (this.symlinkTargetPath) return;
 
@@ -178,6 +194,34 @@ describe("LocalAgent files", () => {
       }),
     ).rejects.toThrow("File changed on disk");
     expect(readFileSync(outsidePath, "utf8")).toBe("first");
+  });
+
+  it("rejects when a checked read path is swapped to an outside symlink", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    const path = join(root, "note.txt");
+    const outsidePath = join(outsideRoot, "note.txt");
+    writeFileSync(path, "first");
+    writeFileSync(outsidePath, "outside secret");
+    const agent = new RacingLocalAgent();
+    agent.racePath = path;
+    agent.symlinkTargetPath = outsidePath;
+
+    await expect(agent.readFile({ rootPath: root, path: "note.txt" })).rejects.toThrow("Path escapes workspace");
+  });
+
+  it("rejects when a checked list child is swapped to an outside symlink", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    const path = join(root, "note.txt");
+    const outsidePath = join(outsideRoot, "note.txt");
+    writeFileSync(path, "first");
+    writeFileSync(outsidePath, "outside secret");
+    const agent = new RacingLocalAgent();
+    agent.racePath = path;
+    agent.symlinkTargetPath = outsidePath;
+
+    await expect(agent.listFiles(root, "")).rejects.toThrow("Path escapes workspace");
   });
 
   it("serializes concurrent saves with the same expected version", async () => {

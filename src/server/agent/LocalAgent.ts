@@ -1,6 +1,6 @@
 import { createHash } from "node:crypto";
-import { constants } from "node:fs";
-import { open, readdir, readFile, stat } from "node:fs/promises";
+import { constants, type Stats } from "node:fs";
+import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
 import { nanoid } from "nanoid";
@@ -10,6 +10,7 @@ import { resolveWorkspacePath } from "../pathPolicy.js";
 
 const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const writeLocks = new Map<string, Promise<void>>();
+const noFollowReadOnlyFlags = constants.O_RDONLY | constants.O_NOFOLLOW;
 const noFollowReadWriteFlags = constants.O_RDWR | constants.O_NOFOLLOW;
 
 function isLikelyBinary(buffer: Buffer): boolean {
@@ -75,9 +76,8 @@ export class LocalAgent implements AgentGateway {
       entries.map(async (entry) => {
         const childPath = join(resolved.relativePath, entry.name);
         const child = resolveWorkspacePath(rootPath, childPath);
-        const childStats = await stat(child.absolutePath);
-        const isBinary = childStats.isDirectory() ? false : isLikelyBinary(await readFile(child.absolutePath));
-        return resourceFor(childPath, childStats, isBinary);
+        await this.beforeListChildOpen();
+        return this.readResourceMetadata(childPath, child.absolutePath);
       }),
     );
 
@@ -89,7 +89,16 @@ export class LocalAgent implements AgentGateway {
 
   async readFile(input: { rootPath: string; path: string }): Promise<FileReadResponse> {
     const resolved = resolveWorkspacePath(input.rootPath, input.path);
-    const [stats, buffer] = await Promise.all([stat(resolved.absolutePath), readFile(resolved.absolutePath)]);
+    await this.beforeReadOpen();
+    const handle = await this.openForRead(resolved.absolutePath);
+    let stats: Stats;
+    let buffer: Buffer;
+    try {
+      stats = await handle.stat();
+      buffer = await handle.readFile();
+    } finally {
+      await handle.close();
+    }
 
     if (isLikelyBinary(buffer)) {
       throw new Error("Binary files cannot be edited");
@@ -132,7 +141,33 @@ export class LocalAgent implements AgentGateway {
 
   protected async beforeWriteOpen(): Promise<void> {}
 
+  protected async beforeReadOpen(): Promise<void> {}
+
+  protected async beforeListChildOpen(): Promise<void> {}
+
   protected async beforeWriteVersionCheck(): Promise<void> {}
+
+  private async readResourceMetadata(path: string, absolutePath: string): Promise<FileResource> {
+    const handle = await this.openForRead(absolutePath);
+    try {
+      const stats = await handle.stat();
+      const isBinary = stats.isDirectory() ? false : isLikelyBinary(await handle.readFile());
+      return resourceFor(path, stats, isBinary);
+    } finally {
+      await handle.close();
+    }
+  }
+
+  private async openForRead(path: string) {
+    try {
+      return await open(path, noFollowReadOnlyFlags);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ELOOP") {
+        throw new Error("Path escapes workspace");
+      }
+      throw error;
+    }
+  }
 
   private async openForWrite(path: string) {
     try {
