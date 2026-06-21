@@ -96,7 +96,10 @@ export function createDatabase(path: string): MetadataDb {
         .run(status, endedAt, new Date().toISOString(), id);
     },
     touchSessionAttachment(id) {
-      db.prepare("update sessions set last_attached_at = ?, status = 'running' where id = ?")
+      db.prepare(`
+        update sessions set last_attached_at = ?, status = 'running'
+        where id = ? and status not in ('exited', 'crashed', 'killed')
+      `)
         .run(new Date().toISOString(), id);
     },
     listSessions(workspaceId) {

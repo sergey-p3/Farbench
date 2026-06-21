@@ -26,4 +26,19 @@ describe("metadata database", () => {
     expect(history[0]?.status).toBe("exited");
     expect(history[0]?.endedAt).not.toBeNull();
   });
+
+  it("does not mark terminal sessions as running when they are touched", () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const session = db.createSession({ workspaceId: workspace.id, name: "Codex", type: "codex", tmuxName: "rd_demo" });
+
+    db.updateSessionStatus(session.id, "exited");
+    const ended = db.getSession(session.id);
+    db.touchSessionAttachment(session.id);
+
+    const touched = db.getSession(session.id);
+    expect(touched?.status).toBe("exited");
+    expect(touched?.lastAttachedAt).toBe(ended?.lastAttachedAt);
+  });
 });
