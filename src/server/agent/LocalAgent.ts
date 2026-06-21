@@ -297,7 +297,13 @@ export class LocalAgent implements AgentGateway {
       cwd: rootPath,
       maxBuffer: 5_000_000,
     });
-    return stdout;
+    if (stdout) return stdout;
+
+    const cached = await execFileAsync("git", ["diff", "--cached", "--", resolved.relativePath], {
+      cwd: rootPath,
+      maxBuffer: 5_000_000,
+    });
+    return cached.stdout;
   }
 
   async createTerminalSession(input: CreateSessionInput): Promise<{ tmuxName: string }> {

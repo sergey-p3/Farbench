@@ -62,6 +62,29 @@ describe("LocalAgent git integration", () => {
     expect(diff).toContain("+two");
   });
 
+  it("returns a staged diff when a tracked file has only staged changes", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    git(["init"], dir);
+    git(["config", "user.email", "dev@example.com"], dir);
+    git(["config", "user.name", "Dev"], dir);
+    writeFileSync(join(dir, "app.txt"), "one\n");
+    git(["add", "app.txt"], dir);
+    git(["commit", "-m", "initial"], dir);
+
+    writeFileSync(join(dir, "app.txt"), "two\n");
+    git(["add", "app.txt"], dir);
+
+    const agent = new LocalAgent();
+    const status = await agent.gitStatus(dir);
+    const appChange = status.changes.find((change) => change.path === "app.txt");
+    const diff = await agent.gitDiff(dir, "app.txt");
+
+    expect(appChange?.staged).toBe(true);
+    expect(appChange?.diffAvailable).toBe(true);
+    expect(diff).toContain("-one");
+    expect(diff).toContain("+two");
+  });
+
   it("returns a stable bad request when git diff path is missing", async () => {
     dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
     const db = createDatabase(join(dir, "state.db"));
