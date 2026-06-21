@@ -1,4 +1,4 @@
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserLayout, Session, Workspace } from "../shared/types.js";
 import { api, isUnauthorized } from "./api.js";
 import { Dashboard } from "./components/Dashboard.js";
@@ -22,6 +22,9 @@ export function App() {
   const [sessions, setSessions] = useState<Session[]>([]);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const sessionRequestRef = useRef(0);
+  const selectedWorkspaceIdRef = useRef(layout.selectedWorkspaceId);
+  const selectedSessionIdRef = useRef(layout.selectedSessionId);
 
   const selectedWorkspace = useMemo(
     () => workspaces.find((workspace) => workspace.id === layout.selectedWorkspaceId) ?? null,
@@ -37,6 +40,11 @@ export function App() {
   }, [layout]);
 
   useEffect(() => {
+    selectedWorkspaceIdRef.current = layout.selectedWorkspaceId;
+    selectedSessionIdRef.current = layout.selectedSessionId;
+  }, [layout.selectedSessionId, layout.selectedWorkspaceId]);
+
+  useEffect(() => {
     void bootstrapAuth();
   }, []);
 
@@ -45,6 +53,8 @@ export function App() {
     setWorkspaces([]);
     setSessions([]);
     setError(null);
+    selectedWorkspaceIdRef.current = null;
+    selectedSessionIdRef.current = null;
   }
 
   function handleApiError(loadError: unknown, fallbackMessage: string): string | null {
@@ -71,6 +81,8 @@ export function App() {
 
   async function loadWorkspaces(options: { showLoading?: boolean } = {}) {
     const showLoading = options.showLoading ?? true;
+    let sessionRequestId: number | null = null;
+    let sessionWorkspaceId: string | null = null;
     if (showLoading) setIsLoading(true);
     setError(null);
 
@@ -78,15 +90,25 @@ export function App() {
       const nextWorkspaces = await api.workspaces();
       setWorkspaces(nextWorkspaces);
 
-      const preferredWorkspaceId = layout.selectedWorkspaceId;
-      const preferredSessionId = layout.selectedSessionId;
+      const preferredWorkspaceId = selectedWorkspaceIdRef.current;
+      const preferredSessionId = selectedSessionIdRef.current;
       const nextWorkspace =
         nextWorkspaces.find((workspace) => workspace.id === preferredWorkspaceId) ?? nextWorkspaces[0] ?? null;
 
       if (nextWorkspace) {
-        await loadSessions(nextWorkspace.id, preferredSessionId);
+        selectedWorkspaceIdRef.current = nextWorkspace.id;
+        setLayout((current) => ({
+          ...current,
+          selectedWorkspaceId: nextWorkspace.id,
+          selectedSessionId: nextWorkspace.id === current.selectedWorkspaceId ? current.selectedSessionId : null,
+        }));
+        sessionWorkspaceId = nextWorkspace.id;
+        sessionRequestId = nextSessionRequest();
+        await loadSessions(nextWorkspace.id, preferredSessionId, sessionRequestId);
       } else {
         setSessions([]);
+        selectedWorkspaceIdRef.current = null;
+        selectedSessionIdRef.current = null;
         setLayout((current) => ({
           ...current,
           selectedWorkspaceId: null,
@@ -94,6 +116,9 @@ export function App() {
         }));
       }
     } catch (loadError) {
+      if (sessionRequestId !== null && sessionWorkspaceId !== null && !isCurrentSessionRequest(sessionWorkspaceId, sessionRequestId)) {
+        return;
+      }
       const message = handleApiError(loadError, "Unable to load workspaces");
       if (message) setError(message);
       throw loadError;
@@ -102,11 +127,25 @@ export function App() {
     }
   }
 
-  async function loadSessions(workspaceId: string, preferredSessionId?: string | null) {
+  function nextSessionRequest(): number {
+    sessionRequestRef.current += 1;
+    return sessionRequestRef.current;
+  }
+
+  function isCurrentSessionRequest(workspaceId: string, requestId: number): boolean {
+    return requestId === sessionRequestRef.current && selectedWorkspaceIdRef.current === workspaceId;
+  }
+
+  async function loadSessions(workspaceId: string, preferredSessionId: string | null | undefined, requestId: number) {
     const nextSessions = await api.sessions(workspaceId);
+    if (!isCurrentSessionRequest(workspaceId, requestId)) {
+      return;
+    }
+
     const nextSession = nextSessions.find((session) => session.id === preferredSessionId) ?? nextSessions[0] ?? null;
 
     setSessions(nextSessions);
+    selectedSessionIdRef.current = nextSession?.id ?? null;
     setLayout((current) => ({
       ...current,
       selectedWorkspaceId: workspaceId,
@@ -116,24 +155,33 @@ export function App() {
 
   async function selectWorkspace(workspaceId: string) {
     setError(null);
+    const requestId = nextSessionRequest();
+    selectedWorkspaceIdRef.current = workspaceId;
+    selectedSessionIdRef.current = null;
+    setSessions([]);
+    setLayout((current) => ({ ...current, selectedWorkspaceId: workspaceId, selectedSessionId: null }));
     try {
-      await loadSessions(workspaceId, null);
+      await loadSessions(workspaceId, null, requestId);
     } catch (loadError) {
+      if (!isCurrentSessionRequest(workspaceId, requestId)) return;
       const message = handleApiError(loadError, "Unable to load sessions");
       if (message) setError(message);
     }
   }
 
   function selectSession(sessionId: string) {
+    selectedSessionIdRef.current = sessionId;
     setLayout((current) => ({ ...current, selectedSessionId: sessionId }));
   }
 
-  async function sessionsChanged(selectedSessionId?: string) {
-    if (!layout.selectedWorkspaceId) return;
+  async function sessionsChanged(workspaceId: string, selectedSessionId?: string) {
+    if (selectedWorkspaceIdRef.current !== workspaceId) return;
+    const requestId = nextSessionRequest();
     setError(null);
     try {
-      await loadSessions(layout.selectedWorkspaceId, selectedSessionId);
+      await loadSessions(workspaceId, selectedSessionId, requestId);
     } catch (loadError) {
+      if (!isCurrentSessionRequest(workspaceId, requestId)) return;
       const message = handleApiError(loadError, "Unable to refresh sessions");
       if (message) setError(message);
       throw loadError;

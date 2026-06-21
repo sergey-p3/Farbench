@@ -9,7 +9,7 @@ interface DashboardProps {
   selectedSessionId: string | null;
   onSelectWorkspace: (workspaceId: string) => void;
   onSelectSession: (sessionId: string) => void;
-  onSessionsChanged: (selectedSessionId?: string) => Promise<void>;
+  onSessionsChanged: (workspaceId: string, selectedSessionId?: string) => Promise<void>;
   onUnauthorized: () => void;
 }
 
@@ -35,7 +35,7 @@ export function Dashboard({
 
     try {
       const session = await api.createSession(selectedWorkspaceId, type, `${type} session`);
-      await onSessionsChanged(session.id);
+      await onSessionsChanged(selectedWorkspaceId, session.id);
     } catch (error) {
       if (isUnauthorized(error)) {
         onUnauthorized();
