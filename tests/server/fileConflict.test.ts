@@ -30,6 +30,16 @@ describe("LocalAgent files", () => {
     racePath: string | null = null;
     replacementPath: string | null = null;
     symlinkTargetPath: string | null = null;
+    listDirectoryPath: string | null = null;
+    listDirectorySymlinkTargetPath: string | null = null;
+
+    protected async beforeListOpen(): Promise<void> {
+      if (!this.listDirectoryPath || !this.listDirectorySymlinkTargetPath) return;
+      rmSync(this.listDirectoryPath, { recursive: true, force: true });
+      symlinkSync(this.listDirectorySymlinkTargetPath, this.listDirectoryPath);
+      this.listDirectoryPath = null;
+      this.listDirectorySymlinkTargetPath = null;
+    }
 
     protected async beforeWriteOpen(): Promise<void> {
       if (!this.racePath || !this.symlinkTargetPath) return;
@@ -264,6 +274,24 @@ describe("LocalAgent files", () => {
     agent.symlinkTargetPath = outsidePath;
 
     await expect(agent.listFiles(root, "")).rejects.toThrow("Path escapes workspace");
+  });
+
+  it("rejects when the requested list directory is swapped to an outside symlink", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    const directory = join(root, "dir");
+    const insideTarget = join(root, "actual.txt");
+    const outsideDirectory = join(outsideRoot, "dir");
+    mkdirSync(directory);
+    mkdirSync(outsideDirectory);
+    writeFileSync(join(directory, "child.txt"), "inside child");
+    writeFileSync(insideTarget, "inside target");
+    symlinkSync(insideTarget, join(outsideDirectory, "actual.txt"));
+    const agent = new RacingLocalAgent();
+    agent.listDirectoryPath = directory;
+    agent.listDirectorySymlinkTargetPath = outsideDirectory;
+
+    await expect(agent.listFiles(root, "dir")).rejects.toThrow("Path escapes workspace");
   });
 
   it("serializes concurrent saves with the same expected version", async () => {

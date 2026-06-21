@@ -77,6 +77,7 @@ function resourceFor(
 export class LocalAgent implements AgentGateway {
   async listFiles(rootPath: string, path: string): Promise<FileResource[]> {
     const resolved = resolveWorkspacePath(rootPath, path);
+    await this.beforeListOpen();
     const entries = await readdir(resolved.absolutePath, { withFileTypes: true });
     const resources = await Promise.all(
       entries.map(async (entry) => {
@@ -87,6 +88,7 @@ export class LocalAgent implements AgentGateway {
         return this.readResourceMetadata(childPath, child.absolutePath);
       }),
     );
+    assertSameResolvedTarget(resolveWorkspacePath(rootPath, path).absolutePath, resolved.absolutePath);
 
     return resources.sort((a, b) => {
       if (a.type !== b.type) return a.type === "directory" ? -1 : 1;
@@ -149,6 +151,8 @@ export class LocalAgent implements AgentGateway {
   }
 
   protected async beforeWriteOpen(): Promise<void> {}
+
+  protected async beforeListOpen(): Promise<void> {}
 
   protected async beforeReadOpen(): Promise<void> {}
 
