@@ -26,11 +26,37 @@ export interface Session {
   endedAt: string | null;
 }
 
+export type ItemKind = "agent" | "terminal" | "files" | "git" | "preview";
+
+export interface WorkspaceItemConfig {
+  runtime?: SessionType;
+  port?: number;
+  path?: string;
+}
+
+export interface WorkspaceItem {
+  id: string;
+  workspaceId: string;
+  kind: ItemKind;
+  title: string;
+  status: SessionStatus | "ready" | "disconnected";
+  sessionId?: string;
+  config?: WorkspaceItemConfig;
+  createdAt?: string;
+  lastActiveAt?: string;
+}
+
+export interface PaneLayout {
+  id: string;
+  activeItemId: string | null;
+  itemIds: string[];
+}
+
 export interface BrowserLayout {
   selectedWorkspaceId: string | null;
-  selectedSessionId: string | null;
-  openEditorPaths: string[];
-  split: "terminal" | "files" | "git" | "preview";
+  activePaneId: string;
+  panes: PaneLayout[];
+  items: WorkspaceItem[];
 }
 
 export interface FileResource {
