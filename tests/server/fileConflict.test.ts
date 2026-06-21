@@ -130,6 +130,38 @@ describe("LocalAgent files", () => {
     expect(readFileSync(path, "utf8")).toBe("replacement content");
   });
 
+  it("serializes concurrent saves with the same expected version", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    const path = join(root, "note.txt");
+    writeFileSync(path, "first");
+    const agent = new LocalAgent();
+    const read = await agent.readFile({ rootPath: root, path: "note.txt" });
+
+    const results = await Promise.allSettled([
+      agent.writeFile({
+        rootPath: root,
+        path: "note.txt",
+        content: "browser edit 1",
+        expectedVersion: read.version,
+      }),
+      agent.writeFile({
+        rootPath: root,
+        path: "note.txt",
+        content: "browser edit 2",
+        expectedVersion: read.version,
+      }),
+    ]);
+
+    const fulfilled = results.filter((result) => result.status === "fulfilled");
+    const rejected = results.filter((result) => result.status === "rejected");
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toEqual(expect.objectContaining({ reason: expect.any(Error) }));
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toBe("File changed on disk");
+    expect(["browser edit 1", "browser edit 2"]).toContain(readFileSync(path, "utf8"));
+  });
+
   it("marks invalid utf8 files as binary and rejects reading them", async () => {
     root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
     writeFileSync(join(root, "invalid.bin"), Buffer.from([0xc3, 0x28]));

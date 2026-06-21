@@ -8,6 +8,7 @@ import type { AgentGateway, CreateSessionInput, WriteFileInput } from "./AgentGa
 import { resolveWorkspacePath } from "../pathPolicy.js";
 
 const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const writeLocks = new Map<string, Promise<void>>();
 
 function isLikelyBinary(buffer: Buffer): boolean {
   if (buffer.includes(0)) return true;
@@ -26,6 +27,26 @@ function versionFor(buffer: Buffer, mtimeMs: number): string {
 
 function isSameFileIdentity(a: { dev: number; ino: number }, b: { dev: number; ino: number }): boolean {
   return a.dev === b.dev && a.ino === b.ino;
+}
+
+async function withWriteLock<T>(key: string, operation: () => Promise<T>): Promise<T> {
+  const previous = writeLocks.get(key) ?? Promise.resolve();
+  let release: () => void = () => {};
+  const current = new Promise<void>((resolve) => {
+    release = resolve;
+  });
+  const tail = previous.catch(() => undefined).then(() => current);
+  writeLocks.set(key, tail);
+
+  await previous.catch(() => undefined);
+  try {
+    return await operation();
+  } finally {
+    release();
+    if (writeLocks.get(key) === tail) {
+      writeLocks.delete(key);
+    }
+  }
 }
 
 function resourceFor(
@@ -81,27 +102,29 @@ export class LocalAgent implements AgentGateway {
 
   async writeFile(input: WriteFileInput): Promise<FileReadResponse> {
     const resolved = resolveWorkspacePath(input.rootPath, input.path);
-    const handle = await open(resolved.absolutePath, "r+");
-    try {
-      await this.beforeWriteVersionCheck();
-      const [stats, pathStats] = await Promise.all([handle.stat(), stat(resolved.absolutePath)]);
-      if (!isSameFileIdentity(stats, pathStats)) {
-        throw new Error("File changed on disk");
+    return withWriteLock(resolved.absolutePath, async () => {
+      const handle = await open(resolved.absolutePath, "r+");
+      try {
+        await this.beforeWriteVersionCheck();
+        const [stats, pathStats] = await Promise.all([handle.stat(), stat(resolved.absolutePath)]);
+        if (!isSameFileIdentity(stats, pathStats)) {
+          throw new Error("File changed on disk");
+        }
+
+        const buffer = await handle.readFile();
+
+        if (versionFor(buffer, stats.mtimeMs) !== input.expectedVersion) {
+          throw new Error("File changed on disk");
+        }
+
+        await handle.truncate(0);
+        await handle.write(input.content, 0, "utf8");
+      } finally {
+        await handle.close();
       }
 
-      const buffer = await handle.readFile();
-
-      if (versionFor(buffer, stats.mtimeMs) !== input.expectedVersion) {
-        throw new Error("File changed on disk");
-      }
-
-      await handle.truncate(0);
-      await handle.write(input.content, 0, "utf8");
-    } finally {
-      await handle.close();
-    }
-
-    return this.readFile({ rootPath: input.rootPath, path: input.path });
+      return this.readFile({ rootPath: input.rootPath, path: input.path });
+    });
   }
 
   protected async beforeWriteVersionCheck(): Promise<void> {}
