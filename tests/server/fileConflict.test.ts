@@ -32,6 +32,28 @@ describe("LocalAgent files", () => {
     symlinkTargetPath: string | null = null;
     listDirectoryPath: string | null = null;
     listDirectorySymlinkTargetPath: string | null = null;
+    ancestorDirectoryPath: string | null = null;
+    ancestorSymlinkTargetPath: string | null = null;
+
+    private swapAncestorDirectory(): void {
+      if (!this.ancestorDirectoryPath || !this.ancestorSymlinkTargetPath) return;
+      rmSync(this.ancestorDirectoryPath, { recursive: true, force: true });
+      symlinkSync(this.ancestorSymlinkTargetPath, this.ancestorDirectoryPath);
+      this.ancestorDirectoryPath = null;
+      this.ancestorSymlinkTargetPath = null;
+    }
+
+    protected async beforeReadFileOpen(): Promise<void> {
+      this.swapAncestorDirectory();
+    }
+
+    protected async beforeWriteFileOpen(): Promise<void> {
+      this.swapAncestorDirectory();
+    }
+
+    protected async beforeListDirectoryOpen(): Promise<void> {
+      this.swapAncestorDirectory();
+    }
 
     protected async beforeListOpen(): Promise<void> {
       if (!this.listDirectoryPath || !this.listDirectorySymlinkTargetPath) return;
@@ -290,6 +312,67 @@ describe("LocalAgent files", () => {
     const agent = new RacingLocalAgent();
     agent.listDirectoryPath = directory;
     agent.listDirectorySymlinkTargetPath = outsideDirectory;
+
+    await expect(agent.listFiles(root, "dir")).rejects.toThrow("Path escapes workspace");
+  });
+
+  it("rejects when an ancestor directory is swapped before read open", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    const directory = join(root, "dir");
+    const outsideDirectory = join(outsideRoot, "dir");
+    mkdirSync(directory);
+    mkdirSync(outsideDirectory);
+    writeFileSync(join(directory, "note.txt"), "inside content");
+    writeFileSync(join(outsideDirectory, "note.txt"), "outside secret");
+    const agent = new RacingLocalAgent();
+    agent.ancestorDirectoryPath = directory;
+    agent.ancestorSymlinkTargetPath = outsideDirectory;
+
+    await expect(agent.readFile({ rootPath: root, path: "dir/note.txt" })).rejects.toThrow("Path escapes workspace");
+  });
+
+  it("rejects when an ancestor directory is swapped before write open without mutating outside", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    const directory = join(root, "dir");
+    const outsideDirectory = join(outsideRoot, "dir");
+    mkdirSync(directory);
+    mkdirSync(outsideDirectory);
+    const insidePath = join(directory, "note.txt");
+    const outsidePath = join(outsideDirectory, "note.txt");
+    writeFileSync(insidePath, "same content");
+    const agent = new RacingLocalAgent();
+    const read = await agent.readFile({ rootPath: root, path: "dir/note.txt" });
+    const originalStats = statSync(insidePath);
+    writeFileSync(outsidePath, "same content");
+    utimesSync(outsidePath, originalStats.atime, originalStats.mtime);
+    agent.ancestorDirectoryPath = directory;
+    agent.ancestorSymlinkTargetPath = outsideDirectory;
+
+    await expect(
+      agent.writeFile({
+        rootPath: root,
+        path: "dir/note.txt",
+        content: "browser edit",
+        expectedVersion: read.version,
+      }),
+    ).rejects.toThrow("Path escapes workspace");
+    expect(readFileSync(outsidePath, "utf8")).toBe("same content");
+  });
+
+  it("rejects when an ancestor directory is swapped before directory enumeration", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    const directory = join(root, "dir");
+    const outsideDirectory = join(outsideRoot, "dir");
+    mkdirSync(directory);
+    mkdirSync(outsideDirectory);
+    writeFileSync(join(directory, "child.txt"), "inside child");
+    writeFileSync(join(outsideDirectory, "outside.txt"), "outside child");
+    const agent = new RacingLocalAgent();
+    agent.ancestorDirectoryPath = directory;
+    agent.ancestorSymlinkTargetPath = outsideDirectory;
 
     await expect(agent.listFiles(root, "dir")).rejects.toThrow("Path escapes workspace");
   });

@@ -1,5 +1,5 @@
 import { createHash } from "node:crypto";
-import { constants, type Stats } from "node:fs";
+import { constants, type Dirent, type Stats } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
@@ -12,6 +12,7 @@ const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const writeLocks = new Map<string, Promise<void>>();
 const noFollowReadOnlyFlags = constants.O_RDONLY | constants.O_NOFOLLOW;
 const noFollowReadWriteFlags = constants.O_RDWR | constants.O_NOFOLLOW;
+const noFollowDirectoryFlags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY;
 
 function isLikelyBinary(buffer: Buffer): boolean {
   if (buffer.includes(0)) return true;
@@ -78,7 +79,17 @@ export class LocalAgent implements AgentGateway {
   async listFiles(rootPath: string, path: string): Promise<FileResource[]> {
     const resolved = resolveWorkspacePath(rootPath, path);
     await this.beforeListOpen();
-    const entries = await readdir(resolved.absolutePath, { withFileTypes: true });
+    assertSameResolvedTarget(resolveWorkspacePath(rootPath, path).absolutePath, resolved.absolutePath);
+    await this.beforeListDirectoryOpen();
+    const directoryHandle = await this.openDirectoryForList(resolved.absolutePath);
+    let entries: Dirent[];
+    try {
+      await this.assertOpenHandleStillMatches(directoryHandle, rootPath, path, resolved.absolutePath);
+      entries = await this.readDirectoryEntriesFromHandle(directoryHandle);
+    } finally {
+      await directoryHandle.close();
+    }
+
     const resources = await Promise.all(
       entries.map(async (entry) => {
         const childPath = join(resolved.relativePath, entry.name);
@@ -100,10 +111,12 @@ export class LocalAgent implements AgentGateway {
     const resolved = resolveWorkspacePath(input.rootPath, input.path);
     await this.beforeReadOpen();
     assertSameResolvedTarget(resolveWorkspacePath(input.rootPath, input.path).absolutePath, resolved.absolutePath);
+    await this.beforeReadFileOpen();
     const handle = await this.openForRead(resolved.absolutePath);
     let stats: Stats;
     let buffer: Buffer;
     try {
+      await this.assertOpenHandleStillMatches(handle, input.rootPath, input.path, resolved.absolutePath);
       stats = await handle.stat();
       buffer = await handle.readFile();
     } finally {
@@ -126,8 +139,10 @@ export class LocalAgent implements AgentGateway {
     return withWriteLock(resolved.absolutePath, async () => {
       await this.beforeWriteOpen();
       assertSameResolvedTarget(resolveWorkspacePath(input.rootPath, input.path).absolutePath, resolved.absolutePath);
+      await this.beforeWriteFileOpen();
       const handle = await this.openForWrite(resolved.absolutePath);
       try {
+        await this.assertOpenHandleStillMatches(handle, input.rootPath, input.path, resolved.absolutePath);
         await this.beforeWriteVersionCheck();
         const [stats, pathStats] = await Promise.all([handle.stat(), stat(resolved.absolutePath)]);
         if (!isSameFileIdentity(stats, pathStats)) {
@@ -154,7 +169,13 @@ export class LocalAgent implements AgentGateway {
 
   protected async beforeListOpen(): Promise<void> {}
 
+  protected async beforeListDirectoryOpen(): Promise<void> {}
+
   protected async beforeReadOpen(): Promise<void> {}
+
+  protected async beforeReadFileOpen(): Promise<void> {}
+
+  protected async beforeWriteFileOpen(): Promise<void> {}
 
   protected async beforeListChildOpen(): Promise<void> {}
 
@@ -188,6 +209,42 @@ export class LocalAgent implements AgentGateway {
     } catch (error) {
       if (error instanceof Error && "code" in error && error.code === "ELOOP") {
         throw new Error("File changed on disk");
+      }
+      throw error;
+    }
+  }
+
+  private async openDirectoryForList(path: string) {
+    try {
+      return await open(path, noFollowDirectoryFlags);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && (error.code === "ELOOP" || error.code === "ENOTDIR")) {
+        throw new Error("Path escapes workspace");
+      }
+      throw error;
+    }
+  }
+
+  private async assertOpenHandleStillMatches(
+    handle: { stat(): Promise<Stats> },
+    rootPath: string,
+    logicalPath: string,
+    originalAbsolutePath: string,
+  ): Promise<void> {
+    const current = resolveWorkspacePath(rootPath, logicalPath);
+    assertSameResolvedTarget(current.absolutePath, originalAbsolutePath);
+    const [handleStats, currentStats] = await Promise.all([handle.stat(), stat(current.absolutePath)]);
+    if (!isSameFileIdentity(handleStats, currentStats)) {
+      throw new Error("File changed on disk");
+    }
+  }
+
+  private async readDirectoryEntriesFromHandle(handle: { fd: number }) {
+    try {
+      return await readdir(`/proc/self/fd/${handle.fd}`, { withFileTypes: true });
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ENOENT") {
+        throw new Error("Pinned directory enumeration is unavailable");
       }
       throw error;
     }
