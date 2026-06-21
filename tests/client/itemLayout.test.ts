@@ -139,6 +139,27 @@ describe("item layout helpers", () => {
     expect(reconciled.panes[0].activeItemId).toBe(filesItem.id);
   });
 
+  test("keeps missing durable session items as disconnected recovery items", () => {
+    const withSession = reconcileSessions(defaultLayout, "w1", [
+      session({ id: "bash-1", type: "bash", name: "shell", lastActivityAt: "2026-06-21T10:30:00.000Z" }),
+    ], "2026-06-21T11:00:00.000Z");
+    const reconciled = reconcileSessions(withSession, "w1", [], "2026-06-21T11:05:00.000Z");
+    const item = reconciled.items.find((candidate) => candidate.id === sessionItemId("bash-1"));
+
+    expect(item).toMatchObject({
+      id: sessionItemId("bash-1"),
+      workspaceId: "w1",
+      kind: "terminal",
+      title: "shell",
+      status: "disconnected",
+      config: { runtime: "bash" },
+      lastActiveAt: "2026-06-21T10:30:00.000Z",
+    });
+    expect(item).not.toHaveProperty("sessionId");
+    expect(reconciled.panes[0].itemIds).toContain(sessionItemId("bash-1"));
+    expect(reconciled.panes[0].activeItemId).toBe(sessionItemId("bash-1"));
+  });
+
   test("focusItem updates active pane and last active time", () => {
     const filesItem = createBrowserItem({ kind: "files", workspaceId: "w1", now: "2026-06-21T10:00:00.000Z" });
     const gitItem = createBrowserItem({ kind: "git", workspaceId: "w1", now: "2026-06-21T10:01:00.000Z" });

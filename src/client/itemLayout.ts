@@ -39,7 +39,8 @@ export function normalizeLayout(value: unknown): BrowserLayout {
 
 export function reconcileSessions(layout: BrowserLayout, workspaceId: string, sessions: Session[], now = new Date().toISOString()): BrowserLayout {
   const normalized = normalizeLayout(layout);
-  const nextItems = normalized.items.filter((item) => item.workspaceId !== workspaceId || !item.sessionId);
+  const sessionIds = new Set(sessions.map((session) => session.id));
+  const nextItems = normalized.items.flatMap((item) => preserveItemDuringSessionReconcile(item, workspaceId, sessionIds));
   const nextPane = ensureActivePane(normalized);
   const existingItemIds = new Set(nextItems.map((item) => item.id));
   const nextPaneItemIds = nextPane.itemIds.filter((itemId) => existingItemIds.has(itemId));
@@ -192,6 +193,23 @@ function cloneDefaultLayout(): BrowserLayout {
     panes: defaultLayout.panes.map((pane) => ({ ...pane, itemIds: [...pane.itemIds] })),
     items: [],
   };
+}
+
+function preserveItemDuringSessionReconcile(item: WorkspaceItem, workspaceId: string, sessionIds: Set<string>): WorkspaceItem[] {
+  if (item.workspaceId !== workspaceId || !item.sessionId) return [item];
+  if (sessionIds.has(item.sessionId)) return [];
+  if (item.kind !== "terminal" && item.kind !== "agent") return [];
+
+  return [{
+    id: item.id,
+    workspaceId: item.workspaceId,
+    kind: item.kind,
+    title: item.title,
+    status: "disconnected",
+    ...(item.config === undefined ? {} : { config: item.config }),
+    ...(item.createdAt === undefined ? {} : { createdAt: item.createdAt }),
+    ...(item.lastActiveAt === undefined ? {} : { lastActiveAt: item.lastActiveAt }),
+  }];
 }
 
 function normalizePane(value: unknown): PaneLayout | null {

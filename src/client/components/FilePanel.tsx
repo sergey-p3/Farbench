@@ -24,6 +24,7 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
   const [isLoading, setIsLoading] = useState(false);
   const [isSaving, setIsSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [retryAction, setRetryAction] = useState<(() => void) | null>(null);
 
   const dirty = selectedPath !== null && content !== savedContent;
   const openableFiles = useMemo(
@@ -51,6 +52,7 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
     setIsLoading(false);
     setIsSaving(false);
     setError(null);
+    setRetryAction(null);
 
     if (!workspace) return;
     void loadFiles(workspace.id, ".", filesRequestRef.current);
@@ -59,6 +61,7 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
   async function loadFiles(workspaceId: string, path: string, requestId: number) {
     setIsLoading(true);
     setError(null);
+    setRetryAction(null);
     try {
       const nextFiles = await api.files(workspaceId, path);
       if (!isCurrentFilesRequest(workspaceId, path, requestId)) return;
@@ -68,7 +71,14 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
     } catch (loadError) {
       if (!isCurrentFilesRequest(workspaceId, path, requestId)) return;
       const message = panelError(loadError, "Unable to load files", onUnauthorized);
-      if (message) setError(message);
+      if (message) {
+        setError(message);
+        setRetryAction(() => () => {
+          const nextRequestId = ++filesRequestRef.current;
+          currentPathRef.current = path;
+          void loadFiles(workspaceId, path, nextRequestId);
+        });
+      }
     } finally {
       if (isCurrentFilesRequest(workspaceId, path, requestId)) setIsLoading(false);
     }
@@ -87,6 +97,7 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
     const requestId = ++openRequestRef.current;
     setIsLoading(true);
     setError(null);
+    setRetryAction(null);
     try {
       const response = await api.readFile(workspaceId, path);
       if (!isCurrentOpenRequest(workspaceId, path, requestId)) return;
@@ -98,7 +109,10 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
     } catch (openError) {
       if (!isCurrentOpenRequest(workspaceId, path, requestId)) return;
       const message = panelError(openError, "Unable to open file", onUnauthorized);
-      if (message) setError(message);
+      if (message) {
+        setError(message);
+        setRetryAction(() => () => void openFile(path));
+      }
     } finally {
       if (isCurrentOpenRequest(workspaceId, path, requestId)) setIsLoading(false);
     }
@@ -111,6 +125,7 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
     const requestId = ++saveRequestRef.current;
     setIsSaving(true);
     setError(null);
+    setRetryAction(null);
     try {
       const response = await api.saveFile(workspaceId, path, content, expectedVersion);
       if (!isCurrentSaveRequest(workspaceId, path, requestId)) return;
@@ -120,7 +135,10 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
     } catch (saveError) {
       if (!isCurrentSaveRequest(workspaceId, path, requestId)) return;
       const message = isConflict(saveError) ? "File changed on disk. Reload before saving." : panelError(saveError, "Unable to save file", onUnauthorized);
-      if (message) setError(message);
+      if (message) {
+        setError(message);
+        if (!isConflict(saveError)) setRetryAction(() => () => void saveFile());
+      }
     } finally {
       if (isCurrentSaveRequest(workspaceId, path, requestId)) setIsSaving(false);
     }
@@ -191,7 +209,12 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
             {isSaving ? "Saving" : "Save"}
           </button>
         </div>
-        {error ? <p className="panel-error" role="alert">{error}</p> : null}
+        {error ? (
+          <div className="panel-error" role="alert">
+            <span>{error}</span>
+            {retryAction ? <button onClick={retryAction} type="button">Retry</button> : null}
+          </div>
+        ) : null}
         <div className="editor-host">
           {selectedPath ? (
             <Editor

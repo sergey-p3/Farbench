@@ -155,7 +155,12 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
           <button className="icon-button primary-icon" aria-label="Create item" onClick={() => setIsCreateOpen(true)} type="button">+</button>
         </header>
 
-        {error ? <p className="shell-error" role="alert">{error}</p> : null}
+        {error ? (
+          <div className="shell-error" role="alert">
+            <span>{error}</span>
+            <button onClick={() => void loadWorkspaces()} type="button">Retry</button>
+          </div>
+        ) : null}
         {isLoading ? <p className="loading-state">Loading workspace...</p> : null}
 
         <PaneHost

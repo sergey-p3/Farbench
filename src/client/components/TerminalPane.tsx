@@ -1,10 +1,12 @@
 import { useEffect, useRef, useState } from "react";
 import { FitAddon } from "xterm-addon-fit";
 import { Terminal } from "xterm";
+import { api, isUnauthorized } from "../api.js";
 
 interface TerminalPaneProps {
   sessionId: string | null;
   onOpenCreateSheet: () => void;
+  onUnauthorized?: () => void;
 }
 
 type TerminalSocketMessage =
@@ -18,7 +20,7 @@ export function terminalSocketUrl(locationLike: Pick<Location, "protocol" | "hos
   return `${protocol}//${locationLike.host}/ws/terminal`;
 }
 
-export function TerminalPane({ sessionId, onOpenCreateSheet }: TerminalPaneProps) {
+export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -46,6 +48,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet }: TerminalPaneProps
     });
     const fitAddon = new FitAddon();
     const socket = new WebSocket(terminalSocketUrl());
+    let authProbeStarted = false;
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -114,13 +117,33 @@ export function TerminalPane({ sessionId, onOpenCreateSheet }: TerminalPaneProps
     });
 
     socket.addEventListener("close", () => {
-      if (isCurrentSocket()) setStatus("Terminal disconnected.");
+      handleConnectionFailure("Terminal disconnected.");
     });
 
     socket.addEventListener("error", () => {
-      if (!isCurrentSocket()) return;
-      setStatus("Unable to connect to terminal.");
+      handleConnectionFailure("Unable to connect to terminal.");
     });
+
+    function handleConnectionFailure(message: string) {
+      if (!isCurrentSocket()) return;
+      setStatus(message);
+      if (authProbeStarted) return;
+      authProbeStarted = true;
+      void verifyAuth(message);
+    }
+
+    async function verifyAuth(message: string) {
+      try {
+        await api.workspaces();
+      } catch (error) {
+        if (!isCurrentSocket()) return;
+        if (isUnauthorized(error)) {
+          onUnauthorized?.();
+          return;
+        }
+        setStatus(message);
+      }
+    }
 
     function isCurrentSocket(): boolean {
       return socketRef.current === socket && terminalRef.current === terminal;
@@ -135,7 +158,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet }: TerminalPaneProps
       socket.close();
       terminal.dispose();
     };
-  }, [retryNonce, sessionId]);
+  }, [onUnauthorized, retryNonce, sessionId]);
 
   if (!sessionId) {
     return (
