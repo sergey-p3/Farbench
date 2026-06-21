@@ -12,9 +12,37 @@ export interface ServerConfig {
   authToken: string;
 }
 
+function parseIpv4Part(part: string): number | null {
+  if (part === "") return null;
+  const radix = part.length > 1 && part.startsWith("0") ? 8 : 10;
+  if (radix === 8 && !/^[0-7]+$/.test(part)) return null;
+  if (radix === 10 && !/^\d+$/.test(part)) return null;
+  const value = Number.parseInt(part, radix);
+  return Number.isSafeInteger(value) ? value : null;
+}
+
+function ipv4LiteralFirstOctet(host: string): number | null {
+  if (!/^[0-9.]+$/.test(host)) return null;
+  const parts = host.split(".");
+  if (parts.length < 1 || parts.length > 4) return null;
+  const values = parts.map(parseIpv4Part);
+  if (values.some((value) => value === null)) return null;
+  const [first, second, third, fourth] = values as [number, number?, number?, number?];
+
+  if (parts.length === 1) return first <= 0xffffffff ? first >>> 24 : null;
+  if (first > 0xff) return null;
+  if (parts.length === 2) return second !== undefined && second <= 0xffffff ? first : null;
+  if (second === undefined || second > 0xff) return null;
+  if (parts.length === 3) return third !== undefined && third <= 0xffff ? first : null;
+  return third !== undefined && third <= 0xff && fourth !== undefined && fourth <= 0xff ? first : null;
+}
+
 function isLoopbackHost(host: string): boolean {
   if (host === "localhost" || host === "::1") return true;
-  return isIP(host) === 4 && host.startsWith("127.");
+  if (isIP(host) === 6 && host.toLowerCase().startsWith("::ffff:")) {
+    return ipv4LiteralFirstOctet(host.slice("::ffff:".length)) === 127;
+  }
+  return ipv4LiteralFirstOctet(host) === 127;
 }
 
 export function parseServeArgs(argv: string[]): ServerConfig {

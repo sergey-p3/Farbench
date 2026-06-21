@@ -35,6 +35,15 @@ describe("parseServeArgs", () => {
     expect(config.authToken).toBe("dev-password");
   });
 
+  it.each(["127.1", "0177.0.0.1", "::ffff:127.0.0.1"])(
+    "allows the development token for concrete loopback literal %s",
+    (host) => {
+      const config = parseServeArgs([...dataDirArgs(), "--host", host]);
+
+      expect(config.authToken).toBe("dev-password");
+    }
+  );
+
   it("requires an explicit auth token for 127-prefixed hostnames", () => {
     expect(() => parseServeArgs([...dataDirArgs(), "--host", "127.example.com"])).toThrow(/--auth-token is required/i);
   });
@@ -45,9 +54,12 @@ describe("parseServeArgs", () => {
     expect(config.authToken).toBe("secret");
   });
 
-  it("requires an explicit auth token when binding to all interfaces", () => {
-    expect(() => parseServeArgs([...dataDirArgs(), "--host", "0.0.0.0"])).toThrow(/--auth-token is required/i);
-  });
+  it.each(["0.0.0.0", "192.168.1.10", "devbox.local"])(
+    "requires an explicit auth token for non-loopback host %s",
+    (host) => {
+      expect(() => parseServeArgs([...dataDirArgs(), "--host", host])).toThrow(/--auth-token is required/i);
+    }
+  );
 
   it("rejects non-numeric ports", () => {
     expect(() => parseServeArgs([...dataDirArgs(), "--port", "abc"])).toThrow(/--port must be an integer/i);
