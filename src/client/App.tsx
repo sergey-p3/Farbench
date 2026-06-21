@@ -1,9 +1,9 @@
 import { useEffect, useMemo, useState } from "react";
 import type { BrowserLayout, Session, Workspace } from "../shared/types.js";
-import { api } from "./api.js";
+import { api, isUnauthorized } from "./api.js";
 import { Dashboard } from "./components/Dashboard.js";
 import { Login } from "./components/Login.js";
-import { defaultLayout, loadLayout, saveLayout } from "./layoutStore.js";
+import { loadLayout, saveLayout } from "./layoutStore.js";
 
 const tabs: BrowserLayout["split"][] = ["terminal", "files", "git", "preview"];
 
@@ -16,6 +16,7 @@ const placeholderText: Record<BrowserLayout["split"], string> = {
 
 export function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
+  const [isBootstrapping, setIsBootstrapping] = useState(true);
   const [layout, setLayout] = useState<BrowserLayout>(() => loadLayout());
   const [workspaces, setWorkspaces] = useState<Workspace[]>([]);
   const [sessions, setSessions] = useState<Session[]>([]);
@@ -35,32 +36,69 @@ export function App() {
     saveLayout(layout);
   }, [layout]);
 
-  async function loadWorkspaces() {
-    setIsLoading(true);
+  useEffect(() => {
+    void bootstrapAuth();
+  }, []);
+
+  function resetToLogin() {
+    setIsAuthenticated(false);
+    setWorkspaces([]);
+    setSessions([]);
+    setError(null);
+  }
+
+  function handleApiError(loadError: unknown, fallbackMessage: string): string | null {
+    if (isUnauthorized(loadError)) {
+      resetToLogin();
+      return null;
+    }
+    return loadError instanceof Error ? loadError.message : fallbackMessage;
+  }
+
+  async function bootstrapAuth() {
+    setIsBootstrapping(true);
+    setError(null);
+
+    try {
+      await loadWorkspaces({ showLoading: false });
+      setIsAuthenticated(true);
+    } catch {
+      resetToLogin();
+    } finally {
+      setIsBootstrapping(false);
+    }
+  }
+
+  async function loadWorkspaces(options: { showLoading?: boolean } = {}) {
+    const showLoading = options.showLoading ?? true;
+    if (showLoading) setIsLoading(true);
     setError(null);
 
     try {
       const nextWorkspaces = await api.workspaces();
       setWorkspaces(nextWorkspaces);
 
-      const remembered = layout.selectedWorkspaceId;
-      const nextWorkspace = nextWorkspaces.find((workspace) => workspace.id === remembered) ?? nextWorkspaces[0] ?? null;
-
-      setLayout((current) => ({
-        ...current,
-        selectedWorkspaceId: nextWorkspace?.id ?? null,
-        selectedSessionId: nextWorkspace ? current.selectedSessionId : null,
-      }));
+      const preferredWorkspaceId = layout.selectedWorkspaceId;
+      const preferredSessionId = layout.selectedSessionId;
+      const nextWorkspace =
+        nextWorkspaces.find((workspace) => workspace.id === preferredWorkspaceId) ?? nextWorkspaces[0] ?? null;
 
       if (nextWorkspace) {
-        await loadSessions(nextWorkspace.id, layout.selectedSessionId);
+        await loadSessions(nextWorkspace.id, preferredSessionId);
       } else {
         setSessions([]);
+        setLayout((current) => ({
+          ...current,
+          selectedWorkspaceId: null,
+          selectedSessionId: null,
+        }));
       }
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load workspaces");
+      const message = handleApiError(loadError, "Unable to load workspaces");
+      if (message) setError(message);
+      throw loadError;
     } finally {
-      setIsLoading(false);
+      if (showLoading) setIsLoading(false);
     }
   }
 
@@ -81,7 +119,8 @@ export function App() {
     try {
       await loadSessions(workspaceId, null);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to load sessions");
+      const message = handleApiError(loadError, "Unable to load sessions");
+      if (message) setError(message);
     }
   }
 
@@ -95,12 +134,18 @@ export function App() {
     try {
       await loadSessions(layout.selectedWorkspaceId, selectedSessionId);
     } catch (loadError) {
-      setError(loadError instanceof Error ? loadError.message : "Unable to refresh sessions");
+      const message = handleApiError(loadError, "Unable to refresh sessions");
+      if (message) setError(message);
+      throw loadError;
     }
   }
 
   function selectTab(split: BrowserLayout["split"]) {
     setLayout((current) => ({ ...current, split }));
+  }
+
+  if (isBootstrapping) {
+    return <main className="login-screen"><p className="loading-state">Checking session...</p></main>;
   }
 
   if (!isAuthenticated) {
@@ -119,7 +164,7 @@ export function App() {
         selectedSessionId={layout.selectedSessionId}
         onSelectWorkspace={(workspaceId) => void selectWorkspace(workspaceId)}
         onSelectSession={selectSession}
-        onSessionsChanged={(selectedSessionId) => void sessionsChanged(selectedSessionId)}
+        onSessionsChanged={sessionsChanged}
       />
 
       <section className="workspace-panel" aria-label="Workspace">

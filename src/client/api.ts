@@ -10,6 +10,20 @@ import type {
 
 type JsonValue = Record<string, unknown>;
 
+export class ApiError extends Error {
+  constructor(
+    message: string,
+    readonly status: number,
+  ) {
+    super(message);
+    this.name = "ApiError";
+  }
+}
+
+export function isUnauthorized(error: unknown): boolean {
+  return error instanceof ApiError && error.status === 401;
+}
+
 async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   const headers = new Headers(options.headers);
   const hasBody = options.body !== undefined;
@@ -25,7 +39,7 @@ async function request<T>(path: string, options: RequestInit = {}): Promise<T> {
   });
 
   if (!response.ok) {
-    throw new Error(await errorMessage(response));
+    throw new ApiError(await errorMessage(response), response.status);
   }
 
   const contentType = response.headers.get("content-type") ?? "";

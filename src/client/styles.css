@@ -94,7 +94,8 @@ button:disabled {
 }
 
 .form-error,
-.shell-error {
+.shell-error,
+.dashboard-error {
   background: #fff1f0;
   border: 1px solid #f0b8b3;
   border-radius: 6px;
@@ -195,7 +196,8 @@ button:disabled {
 }
 
 .empty-state,
-.loading-state {
+.loading-state,
+.dashboard-error {
   margin: 8px 0;
 }
 
