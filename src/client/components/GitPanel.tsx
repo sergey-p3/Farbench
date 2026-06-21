@@ -4,9 +4,10 @@ import { api, isUnauthorized } from "../api.js";
 
 interface GitPanelProps {
   workspace: Workspace | null;
+  onUnauthorized?: () => void;
 }
 
-export function GitPanel({ workspace }: GitPanelProps) {
+export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
   const workspaceIdRef = useRef<string | null>(workspace?.id ?? null);
   const selectedPathRef = useRef<string | null>(null);
   const statusRequestRef = useRef(0);
@@ -52,7 +53,8 @@ export function GitPanel({ workspace }: GitPanelProps) {
       }
     } catch (statusError) {
       if (!isCurrentStatusRequest(workspaceId, requestId)) return;
-      setError(panelError(statusError, "Unable to load git status"));
+      const message = panelError(statusError, "Unable to load git status", onUnauthorized);
+      if (message) setError(message);
     } finally {
       if (isCurrentStatusRequest(workspaceId, requestId)) setIsLoading(false);
     }
@@ -74,7 +76,8 @@ export function GitPanel({ workspace }: GitPanelProps) {
       setDiff(nextDiff);
     } catch (diffError) {
       if (!isCurrentDiffRequest(workspaceId, path, requestId)) return;
-      setError(panelError(diffError, "Unable to load diff"));
+      const message = panelError(diffError, "Unable to load diff", onUnauthorized);
+      if (message) setError(message);
     } finally {
       if (isCurrentDiffRequest(workspaceId, path, requestId)) setIsLoadingDiff(false);
     }
@@ -135,7 +138,10 @@ export function GitPanel({ workspace }: GitPanelProps) {
   );
 }
 
-function panelError(error: unknown, fallback: string): string {
-  if (isUnauthorized(error)) return "Session expired. Sign in again.";
+function panelError(error: unknown, fallback: string, onUnauthorized?: () => void): string | null {
+  if (isUnauthorized(error)) {
+    onUnauthorized?.();
+    return onUnauthorized ? null : "Session expired. Sign in again.";
+  }
   return error instanceof Error ? error.message : fallback;
 }

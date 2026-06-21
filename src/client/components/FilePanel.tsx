@@ -5,9 +5,10 @@ import { ApiError, api, isUnauthorized } from "../api.js";
 
 interface FilePanelProps {
   workspace: Workspace | null;
+  onUnauthorized?: () => void;
 }
 
-export function FilePanel({ workspace }: FilePanelProps) {
+export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
   const workspaceIdRef = useRef<string | null>(workspace?.id ?? null);
   const selectedPathRef = useRef<string | null>(null);
   const currentPathRef = useRef(".");
@@ -66,7 +67,8 @@ export function FilePanel({ workspace }: FilePanelProps) {
       currentPathRef.current = path;
     } catch (loadError) {
       if (!isCurrentFilesRequest(workspaceId, path, requestId)) return;
-      setError(panelError(loadError, "Unable to load files"));
+      const message = panelError(loadError, "Unable to load files", onUnauthorized);
+      if (message) setError(message);
     } finally {
       if (isCurrentFilesRequest(workspaceId, path, requestId)) setIsLoading(false);
     }
@@ -95,7 +97,8 @@ export function FilePanel({ workspace }: FilePanelProps) {
       setExpectedVersion(response.version);
     } catch (openError) {
       if (!isCurrentOpenRequest(workspaceId, path, requestId)) return;
-      setError(panelError(openError, "Unable to open file"));
+      const message = panelError(openError, "Unable to open file", onUnauthorized);
+      if (message) setError(message);
     } finally {
       if (isCurrentOpenRequest(workspaceId, path, requestId)) setIsLoading(false);
     }
@@ -116,7 +119,8 @@ export function FilePanel({ workspace }: FilePanelProps) {
       setExpectedVersion(response.version);
     } catch (saveError) {
       if (!isCurrentSaveRequest(workspaceId, path, requestId)) return;
-      setError(isConflict(saveError) ? "File changed on disk. Reload before saving." : panelError(saveError, "Unable to save file"));
+      const message = isConflict(saveError) ? "File changed on disk. Reload before saving." : panelError(saveError, "Unable to save file", onUnauthorized);
+      if (message) setError(message);
     } finally {
       if (isCurrentSaveRequest(workspaceId, path, requestId)) setIsSaving(false);
     }
@@ -231,7 +235,10 @@ function parentPath(path: string): string {
   return path.slice(0, path.lastIndexOf("/"));
 }
 
-function panelError(error: unknown, fallback: string): string {
-  if (isUnauthorized(error)) return "Session expired. Sign in again.";
+function panelError(error: unknown, fallback: string, onUnauthorized?: () => void): string | null {
+  if (isUnauthorized(error)) {
+    onUnauthorized?.();
+    return onUnauthorized ? null : "Session expired. Sign in again.";
+  }
   return error instanceof Error ? error.message : fallback;
 }

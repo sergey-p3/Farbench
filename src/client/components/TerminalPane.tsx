@@ -4,6 +4,7 @@ import { Terminal } from "xterm";
 
 interface TerminalPaneProps {
   sessionId: string | null;
+  onOpenCreateSheet: () => void;
 }
 
 type TerminalSocketMessage =
@@ -17,12 +18,13 @@ export function terminalSocketUrl(locationLike: Pick<Location, "protocol" | "hos
   return `${protocol}//${locationLike.host}/ws/terminal`;
 }
 
-export function TerminalPane({ sessionId }: TerminalPaneProps) {
+export function TerminalPane({ sessionId, onOpenCreateSheet }: TerminalPaneProps) {
   const containerRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [retryNonce, setRetryNonce] = useState(0);
 
   useEffect(() => {
     setStatus(null);
@@ -133,19 +135,28 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
       socket.close();
       terminal.dispose();
     };
-  }, [sessionId]);
+  }, [retryNonce, sessionId]);
 
   if (!sessionId) {
     return (
       <div className="tool-panel empty-tool">
         <p className="empty-state">Select a session to attach a terminal.</p>
+        <button onClick={onOpenCreateSheet} type="button">Create new</button>
       </div>
     );
   }
 
   return (
     <div className="tool-panel terminal-pane">
-      {status ? <p className="panel-error" role="status">{status}</p> : null}
+      {status ? (
+        <div className="panel-error terminal-status" role="status">
+          <span>{status}</span>
+          <div className="terminal-status-actions">
+            <button onClick={() => setRetryNonce((current) => current + 1)} type="button">Retry</button>
+            <button onClick={onOpenCreateSheet} type="button">Create new</button>
+          </div>
+        </div>
+      ) : null}
       <div className="terminal-host" ref={containerRef} />
     </div>
   );

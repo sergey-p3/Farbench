@@ -6,9 +6,10 @@ interface PreviewPanelProps {
   workspace: Workspace | null;
   initialPort?: number;
   initialPath?: string;
+  onUnauthorized?: () => void;
 }
 
-export function PreviewPanel({ workspace, initialPort = 3000, initialPath = "/" }: PreviewPanelProps) {
+export function PreviewPanel({ workspace, initialPort = 3000, initialPath = "/", onUnauthorized }: PreviewPanelProps) {
   const workspaceIdRef = useRef<string | null>(workspace?.id ?? null);
   const previewRequestRef = useRef(0);
   const [port, setPort] = useState(initialPort);
@@ -39,7 +40,8 @@ export function PreviewPanel({ workspace, initialPort = 3000, initialPath = "/" 
       setPreview(nextPreview);
     } catch (previewError) {
       if (!isCurrentPreviewRequest(workspaceId, requestId)) return;
-      setError(panelError(previewError, "Unable to create preview"));
+      const message = panelError(previewError, "Unable to create preview", onUnauthorized);
+      if (message) setError(message);
     } finally {
       if (isCurrentPreviewRequest(workspaceId, requestId)) setIsLoading(false);
     }
@@ -82,7 +84,7 @@ export function PreviewPanel({ workspace, initialPort = 3000, initialPath = "/" 
           {isLoading ? "Exposing" : "Expose"}
         </button>
         {preview ? (
-          <a href={preview.pathPrefix} rel="noreferrer" target="_blank">
+          <a href={previewUrl(preview.pathPrefix, pathPrefix)} rel="noreferrer" target="_blank">
             Open in new tab
           </a>
         ) : null}
@@ -90,7 +92,7 @@ export function PreviewPanel({ workspace, initialPort = 3000, initialPath = "/" 
       {error ? <p className="panel-error" role="alert">{error}</p> : null}
       <div className="preview-frame-wrap">
         {preview ? (
-          <iframe className="preview-frame" src={preview.pathPrefix} title={`Preview port ${preview.port}`} />
+          <iframe className="preview-frame" src={previewUrl(preview.pathPrefix, pathPrefix)} title={`Preview port ${preview.port}`} />
         ) : (
           <p className="empty-state centered">Expose a port to load its preview.</p>
         )}
@@ -99,7 +101,17 @@ export function PreviewPanel({ workspace, initialPort = 3000, initialPath = "/" 
   );
 }
 
-function panelError(error: unknown, fallback: string): string {
-  if (isUnauthorized(error)) return "Session expired. Sign in again.";
+function previewUrl(basePath: string, itemPath: string): string {
+  const trimmed = itemPath.trim();
+  if (!trimmed || trimmed === "/") return `${basePath}/`;
+  const normalized = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
+  return `${basePath}${normalized}`;
+}
+
+function panelError(error: unknown, fallback: string, onUnauthorized?: () => void): string | null {
+  if (isUnauthorized(error)) {
+    onUnauthorized?.();
+    return onUnauthorized ? null : "Session expired. Sign in again.";
+  }
   return error instanceof Error ? error.message : fallback;
 }

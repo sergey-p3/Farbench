@@ -158,7 +158,12 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
         {error ? <p className="shell-error" role="alert">{error}</p> : null}
         {isLoading ? <p className="loading-state">Loading workspace...</p> : null}
 
-        <PaneHost layout={layout} workspace={selectedWorkspace} onOpenCreateSheet={() => setIsCreateOpen(true)} />
+        <PaneHost
+          layout={layout}
+          workspace={selectedWorkspace}
+          onOpenCreateSheet={() => setIsCreateOpen(true)}
+          onUnauthorized={onUnauthorized}
+        />
       </section>
 
       <ItemSwitcher

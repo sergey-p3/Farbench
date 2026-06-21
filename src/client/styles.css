@@ -391,10 +391,21 @@ button.secondary-button {
 .empty-tool {
   align-content: center;
   display: grid;
+  gap: 12px;
   justify-items: center;
   min-height: 280px;
   padding: 24px;
   text-align: center;
+}
+
+.empty-tool button,
+.terminal-status-actions button {
+  background: #24435f;
+  border: 1px solid #24435f;
+  border-radius: 6px;
+  color: #ffffff;
+  min-height: 34px;
+  padding: 7px 12px;
 }
 
 .tool-panel {
@@ -618,6 +629,20 @@ button.secondary-button {
 
 .terminal-pane > .panel-error {
   grid-row: 1;
+}
+
+.terminal-status {
+  align-items: center;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+}
+
+.terminal-status-actions {
+  display: flex;
+  flex-wrap: wrap;
+  gap: 6px;
 }
 
 .panel-error {

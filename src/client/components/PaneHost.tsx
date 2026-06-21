@@ -6,9 +6,10 @@ interface PaneHostProps {
   layout: BrowserLayout;
   workspace: Workspace | null;
   onOpenCreateSheet: () => void;
+  onUnauthorized: () => void;
 }
 
-export function PaneHost({ layout, workspace, onOpenCreateSheet }: PaneHostProps) {
+export function PaneHost({ layout, workspace, onOpenCreateSheet, onUnauthorized }: PaneHostProps) {
   const item: WorkspaceItem | null = activeItem(layout);
   const matchedItem = item?.workspaceId === workspace?.id ? item : null;
 
@@ -19,6 +20,7 @@ export function PaneHost({ layout, workspace, onOpenCreateSheet }: PaneHostProps
         key={matchedItem?.id ?? "empty"}
         workspace={workspace}
         onOpenCreateSheet={onOpenCreateSheet}
+        onUnauthorized={onUnauthorized}
       />
     </section>
   );
