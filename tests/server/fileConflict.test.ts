@@ -1,22 +1,47 @@
-import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import {
+  mkdirSync,
+  mkdtempSync,
+  readFileSync,
+  renameSync,
+  rmSync,
+  statSync,
+  symlinkSync,
+  unlinkSync,
+  utimesSync,
+  writeFileSync,
+} from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
 import { LocalAgent } from "../../src/server/agent/LocalAgent.js";
 
 let root: string | null = null;
+let outsideRoot: string | null = null;
 
 afterEach(() => {
   if (root) rmSync(root, { recursive: true, force: true });
+  if (outsideRoot) rmSync(outsideRoot, { recursive: true, force: true });
   root = null;
+  outsideRoot = null;
 });
 
 describe("LocalAgent files", () => {
   class RacingLocalAgent extends LocalAgent {
     racePath: string | null = null;
     replacementPath: string | null = null;
+    symlinkTargetPath: string | null = null;
+
+    protected async beforeWriteOpen(): Promise<void> {
+      if (!this.racePath || !this.symlinkTargetPath) return;
+      unlinkSync(this.racePath);
+      symlinkSync(this.symlinkTargetPath, this.racePath);
+      this.racePath = null;
+      this.symlinkTargetPath = null;
+    }
 
     protected async beforeWriteVersionCheck(): Promise<void> {
+      if (this.symlinkTargetPath) return;
+
       if (this.replacementPath) {
         renameSync(this.replacementPath, this.racePath ?? this.replacementPath);
         this.racePath = null;
@@ -128,6 +153,31 @@ describe("LocalAgent files", () => {
       }),
     ).rejects.toThrow("File changed on disk");
     expect(readFileSync(path, "utf8")).toBe("replacement content");
+  });
+
+  it("rejects when the checked path is swapped to an outside symlink before open", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    const path = join(root, "note.txt");
+    const outsidePath = join(outsideRoot, "note.txt");
+    writeFileSync(path, "first");
+    const agent = new RacingLocalAgent();
+    const read = await agent.readFile({ rootPath: root, path: "note.txt" });
+    const originalStats = statSync(path);
+    writeFileSync(outsidePath, "first");
+    utimesSync(outsidePath, originalStats.atime, originalStats.mtime);
+    agent.racePath = path;
+    agent.symlinkTargetPath = outsidePath;
+
+    await expect(
+      agent.writeFile({
+        rootPath: root,
+        path: "note.txt",
+        content: "browser edit",
+        expectedVersion: read.version,
+      }),
+    ).rejects.toThrow("File changed on disk");
+    expect(readFileSync(outsidePath, "utf8")).toBe("first");
   });
 
   it("serializes concurrent saves with the same expected version", async () => {

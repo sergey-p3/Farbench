@@ -1,4 +1,5 @@
 import { createHash } from "node:crypto";
+import { constants } from "node:fs";
 import { open, readdir, readFile, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { TextDecoder } from "node:util";
@@ -9,6 +10,7 @@ import { resolveWorkspacePath } from "../pathPolicy.js";
 
 const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const writeLocks = new Map<string, Promise<void>>();
+const noFollowReadWriteFlags = constants.O_RDWR | constants.O_NOFOLLOW;
 
 function isLikelyBinary(buffer: Buffer): boolean {
   if (buffer.includes(0)) return true;
@@ -103,7 +105,8 @@ export class LocalAgent implements AgentGateway {
   async writeFile(input: WriteFileInput): Promise<FileReadResponse> {
     const resolved = resolveWorkspacePath(input.rootPath, input.path);
     return withWriteLock(resolved.absolutePath, async () => {
-      const handle = await open(resolved.absolutePath, "r+");
+      await this.beforeWriteOpen();
+      const handle = await this.openForWrite(resolved.absolutePath);
       try {
         await this.beforeWriteVersionCheck();
         const [stats, pathStats] = await Promise.all([handle.stat(), stat(resolved.absolutePath)]);
@@ -127,7 +130,20 @@ export class LocalAgent implements AgentGateway {
     });
   }
 
+  protected async beforeWriteOpen(): Promise<void> {}
+
   protected async beforeWriteVersionCheck(): Promise<void> {}
+
+  private async openForWrite(path: string) {
+    try {
+      return await open(path, noFollowReadWriteFlags);
+    } catch (error) {
+      if (error instanceof Error && "code" in error && error.code === "ELOOP") {
+        throw new Error("File changed on disk");
+      }
+      throw error;
+    }
+  }
 
   async gitStatus(_rootPath: string): Promise<GitStatusResponse> {
     return { changes: [] };
