@@ -56,6 +56,20 @@ describe("LocalAgent files", () => {
     expect(resources).toContainEqual(expect.objectContaining({ path: "alias.txt", type: "file" }));
   });
 
+  it("lists symlink directory children under the requested logical path", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    mkdirSync(join(root, "real"));
+    writeFileSync(join(root, "real", "child.txt"), "first");
+    symlinkSync("real", join(root, "alias"));
+    const agent = new LocalAgent();
+
+    const resources = await agent.listFiles(root, "alias");
+
+    expect(resources).toEqual([
+      expect.objectContaining({ path: "alias/child.txt", type: "file" }),
+    ]);
+  });
+
   it("keeps internal symlink names in read and write responses", async () => {
     root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
     writeFileSync(join(root, "actual.txt"), "first");

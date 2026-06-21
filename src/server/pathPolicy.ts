@@ -28,6 +28,7 @@ export function resolveWorkspacePath(rootPath: string, requestedPath: string): R
   const rootRealPath = realpathSync(rootPath);
   const lexicalAbsolutePath = resolve(rootRealPath, requestedPath);
   assertInsideWorkspace(rootRealPath, lexicalAbsolutePath);
+  const logicalRelativePath = relative(rootRealPath, lexicalAbsolutePath);
 
   const existingPath = nearestExistingPath(lexicalAbsolutePath);
   const existingRealPath = realpathSync(existingPath);
@@ -39,6 +40,6 @@ export function resolveWorkspacePath(rootPath: string, requestedPath: string): R
 
   return {
     absolutePath,
-    relativePath: relative(rootRealPath, absolutePath),
+    relativePath: logicalRelativePath,
   };
 }

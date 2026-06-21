@@ -35,6 +35,18 @@ describe("resolveWorkspacePath", () => {
     expect(resolveWorkspacePath(root, "..data/file.txt").absolutePath).toBe(join(root, "..data/file.txt"));
   });
 
+  it("preserves the logical relative path for internal symlinks", () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
+    mkdirSync(join(root, "real"));
+    writeFileSync(join(root, "real", "child.txt"), "hello");
+    symlinkSync("real", join(root, "alias"));
+
+    const resolved = resolveWorkspacePath(root, "alias/child.txt");
+
+    expect(resolved.absolutePath).toBe(join(root, "real", "child.txt"));
+    expect(resolved.relativePath).toBe("alias/child.txt");
+  });
+
   it("blocks traversal outside the workspace", () => {
     root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
 
