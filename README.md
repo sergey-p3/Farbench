@@ -7,7 +7,7 @@ Remote Development is a browser-first control plane for durable terminal coding-
 ```sh
 npm install
 npm run build
-npx tsx src/server/cli.ts serve --host 127.0.0.1 --port 3000 --workspace .
+node dist/server/cli.js serve --host 127.0.0.1 --port 3000 --workspace .
 ```
 
 Loopback development access uses the default token:
@@ -21,7 +21,7 @@ dev-password
 To serve the app on your local network, bind to all interfaces and provide an explicit auth token:
 
 ```sh
-npx tsx src/server/cli.ts serve --host 0.0.0.0 --port 3000 --workspace . --auth-token <choose-a-secret>
+node dist/server/cli.js serve --host 0.0.0.0 --port 3000 --workspace . --auth-token <choose-a-secret>
 ```
 
 Non-loopback hosts require an explicit `--auth-token`.
@@ -62,7 +62,7 @@ E2E tests use isolated `test-results` workspace and data directories. They inten
 1. Start the LAN server:
 
    ```sh
-   npx tsx src/server/cli.ts serve --host 0.0.0.0 --port 3000 --workspace . --auth-token <choose-a-secret>
+   node dist/server/cli.js serve --host 0.0.0.0 --port 3000 --workspace . --auth-token <choose-a-secret>
    ```
 
 2. Confirm the server prints a LAN URL.
