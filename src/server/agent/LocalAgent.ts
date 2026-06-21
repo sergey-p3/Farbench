@@ -96,7 +96,7 @@ export class LocalAgent implements AgentGateway {
         const child = resolveWorkspacePath(rootPath, childPath);
         await this.beforeListChildOpen();
         assertSameResolvedTarget(resolveWorkspacePath(rootPath, childPath).absolutePath, child.absolutePath);
-        return this.readResourceMetadata(childPath, child.absolutePath);
+        return this.readResourceMetadata(rootPath, childPath, child.absolutePath);
       }),
     );
     assertSameResolvedTarget(resolveWorkspacePath(rootPath, path).absolutePath, resolved.absolutePath);
@@ -179,11 +179,15 @@ export class LocalAgent implements AgentGateway {
 
   protected async beforeListChildOpen(): Promise<void> {}
 
+  protected async beforeListChildMetadataOpen(): Promise<void> {}
+
   protected async beforeWriteVersionCheck(): Promise<void> {}
 
-  private async readResourceMetadata(path: string, absolutePath: string): Promise<FileResource> {
+  private async readResourceMetadata(rootPath: string, path: string, absolutePath: string): Promise<FileResource> {
+    await this.beforeListChildMetadataOpen();
     const handle = await this.openForRead(absolutePath);
     try {
+      await this.assertOpenHandleStillMatches(handle, rootPath, path, absolutePath);
       const stats = await handle.stat();
       const isBinary = stats.isDirectory() ? false : isLikelyBinary(await handle.readFile());
       return resourceFor(path, stats, isBinary);

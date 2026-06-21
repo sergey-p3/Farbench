@@ -34,6 +34,8 @@ describe("LocalAgent files", () => {
     listDirectorySymlinkTargetPath: string | null = null;
     ancestorDirectoryPath: string | null = null;
     ancestorSymlinkTargetPath: string | null = null;
+    metadataAncestorDirectoryPath: string | null = null;
+    metadataAncestorSymlinkTargetPath: string | null = null;
 
     private swapAncestorDirectory(): void {
       if (!this.ancestorDirectoryPath || !this.ancestorSymlinkTargetPath) return;
@@ -53,6 +55,14 @@ describe("LocalAgent files", () => {
 
     protected async beforeListDirectoryOpen(): Promise<void> {
       this.swapAncestorDirectory();
+    }
+
+    protected async beforeListChildMetadataOpen(): Promise<void> {
+      if (!this.metadataAncestorDirectoryPath || !this.metadataAncestorSymlinkTargetPath) return;
+      rmSync(this.metadataAncestorDirectoryPath, { recursive: true, force: true });
+      symlinkSync(this.metadataAncestorSymlinkTargetPath, this.metadataAncestorDirectoryPath);
+      this.metadataAncestorDirectoryPath = null;
+      this.metadataAncestorSymlinkTargetPath = null;
     }
 
     protected async beforeListOpen(): Promise<void> {
@@ -373,6 +383,22 @@ describe("LocalAgent files", () => {
     const agent = new RacingLocalAgent();
     agent.ancestorDirectoryPath = directory;
     agent.ancestorSymlinkTargetPath = outsideDirectory;
+
+    await expect(agent.listFiles(root, "dir")).rejects.toThrow("Path escapes workspace");
+  });
+
+  it("rejects when an ancestor directory is swapped before list child metadata open", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    const directory = join(root, "dir");
+    const outsideDirectory = join(outsideRoot, "dir");
+    mkdirSync(directory);
+    mkdirSync(outsideDirectory);
+    writeFileSync(join(directory, "child.txt"), "inside child");
+    writeFileSync(join(outsideDirectory, "child.txt"), "outside child");
+    const agent = new RacingLocalAgent();
+    agent.metadataAncestorDirectoryPath = directory;
+    agent.metadataAncestorSymlinkTargetPath = outsideDirectory;
 
     await expect(agent.listFiles(root, "dir")).rejects.toThrow("Path escapes workspace");
   });
