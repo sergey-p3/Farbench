@@ -92,7 +92,12 @@ export function createDatabase(path: string): MetadataDb {
     },
     updateSessionStatus(id, status) {
       const endedAt = ["exited", "crashed", "killed"].includes(status) ? new Date().toISOString() : null;
-      db.prepare("update sessions set status = ?, ended_at = coalesce(?, ended_at), last_activity_at = ? where id = ?")
+      const terminalStatuses = ["exited", "crashed", "killed"];
+      const guardTerminal = terminalStatuses.includes(status) ? "" : "and status not in ('exited', 'crashed', 'killed')";
+      db.prepare(`
+        update sessions set status = ?, ended_at = coalesce(?, ended_at), last_activity_at = ?
+        where id = ? ${guardTerminal}
+      `)
         .run(status, endedAt, new Date().toISOString(), id);
     },
     touchSessionAttachment(id) {

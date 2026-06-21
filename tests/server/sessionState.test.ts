@@ -41,4 +41,20 @@ describe("metadata database", () => {
     expect(touched?.status).toBe("exited");
     expect(touched?.lastAttachedAt).toBe(ended?.lastAttachedAt);
   });
+
+  it("does not revive terminal sessions through status updates", () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const session = db.createSession({ workspaceId: workspace.id, name: "Codex", type: "codex", tmuxName: "rd_demo" });
+
+    db.updateSessionStatus(session.id, "running");
+    db.updateSessionStatus(session.id, "exited");
+    const ended = db.getSession(session.id);
+    db.updateSessionStatus(session.id, "running");
+
+    const updated = db.getSession(session.id);
+    expect(updated?.status).toBe("exited");
+    expect(updated?.endedAt).toBe(ended?.endedAt);
+  });
 });
