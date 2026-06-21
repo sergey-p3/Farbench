@@ -1,8 +1,9 @@
 import { createHash } from "node:crypto";
+import { execFile } from "node:child_process";
 import { constants, type Dirent, type Stats } from "node:fs";
 import { open, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
-import { TextDecoder } from "node:util";
+import { promisify, TextDecoder } from "node:util";
 import { nanoid } from "nanoid";
 import type { FileReadResponse, FileResource, GitStatusResponse, PortPreview } from "../../shared/types.js";
 import type { AgentGateway, CreateSessionInput, WriteFileInput } from "./AgentGateway.js";
@@ -10,6 +11,7 @@ import { resolveWorkspacePath } from "../pathPolicy.js";
 import { TmuxManager } from "../terminal/TmuxManager.js";
 
 const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
+const execFileAsync = promisify(execFile);
 const writeLocks = new Map<string, Promise<void>>();
 const noFollowReadOnlyFlags = constants.O_RDONLY | constants.O_NOFOLLOW;
 const noFollowReadWriteFlags = constants.O_RDWR | constants.O_NOFOLLOW;
@@ -267,12 +269,35 @@ export class LocalAgent implements AgentGateway {
     }
   }
 
-  async gitStatus(_rootPath: string): Promise<GitStatusResponse> {
-    return { changes: [] };
+  async gitStatus(rootPath: string): Promise<GitStatusResponse> {
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1"], { cwd: rootPath });
+    return {
+      changes: stdout
+        .split("\n")
+        .filter(Boolean)
+        .map((line) => {
+          const indexStatus = line[0] ?? " ";
+          const worktreeStatus = line[1] ?? " ";
+          const rawPath = line.slice(3);
+          const path = rawPath.includes(" -> ") ? rawPath.slice(rawPath.indexOf(" -> ") + 4) : rawPath;
+          const staged = indexStatus !== " " && indexStatus !== "?";
+          return {
+            path,
+            status: `${indexStatus}${worktreeStatus}`.trim(),
+            staged,
+            diffAvailable: staged || (worktreeStatus !== " " && worktreeStatus !== "?"),
+          };
+        }),
+    };
   }
 
-  async gitDiff(_rootPath: string, _path: string): Promise<string> {
-    return "";
+  async gitDiff(rootPath: string, path: string): Promise<string> {
+    const resolved = resolveWorkspacePath(rootPath, path);
+    const { stdout } = await execFileAsync("git", ["diff", "--", resolved.relativePath], {
+      cwd: rootPath,
+      maxBuffer: 5_000_000,
+    });
+    return stdout;
   }
 
   async createTerminalSession(input: CreateSessionInput): Promise<{ tmuxName: string }> {
@@ -288,11 +313,12 @@ export class LocalAgent implements AgentGateway {
   }
 
   async createPreview(workspaceId: string, port: number): Promise<PortPreview> {
+    const id = nanoid();
     return {
-      id: nanoid(),
+      id,
       workspaceId,
       port,
-      pathPrefix: `/preview/${workspaceId}/${port}`,
+      pathPrefix: `/preview/${id}`,
       status: "active",
       createdAt: new Date().toISOString(),
     };
