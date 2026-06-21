@@ -1,3 +1,5 @@
+@import "xterm/css/xterm.css";
+
 :root {
   color: #1f2933;
   background: #eef1f4;
@@ -52,7 +54,6 @@ button:disabled {
 
 .login-panel h1,
 .top-bar h1,
-.placeholder-panel h2,
 .section-title h2 {
   margin: 0;
 }
@@ -190,6 +191,8 @@ button:disabled {
 .item-meta,
 .empty-state,
 .loading-state,
+.panel-toolbar,
+.preview-controls,
 .placeholder-panel p {
   color: #687586;
   font-size: 0.84rem;
@@ -271,7 +274,8 @@ button:disabled {
   color: #ffffff;
 }
 
-.placeholder-panel {
+.placeholder-panel,
+.empty-tool {
   align-content: center;
   display: grid;
   justify-items: center;
@@ -283,6 +287,190 @@ button:disabled {
 .placeholder-panel h2 {
   font-size: 1.1rem;
   text-transform: capitalize;
+}
+
+.tool-panel {
+  min-height: 0;
+  overflow: hidden;
+}
+
+.terminal-pane,
+.preview-panel {
+  display: grid;
+  grid-template-rows: auto 1fr;
+}
+
+.terminal-host {
+  background: #101820;
+  height: min(68vh, 720px);
+  min-height: 360px;
+  overflow: hidden;
+  padding: 8px;
+}
+
+.terminal-host .xterm {
+  height: 100%;
+}
+
+.file-panel,
+.git-panel {
+  display: grid;
+  gap: 0;
+  grid-template-columns: minmax(190px, 260px) minmax(0, 1fr);
+  min-height: 0;
+}
+
+.file-list,
+.git-change-list,
+.editor-panel,
+.diff-panel {
+  min-width: 0;
+  overflow: hidden;
+}
+
+.file-list,
+.git-change-list {
+  border-right: 1px solid #d8dee6;
+  display: grid;
+  grid-template-rows: auto auto 1fr auto;
+}
+
+.editor-panel,
+.diff-panel {
+  display: grid;
+  grid-template-rows: auto auto 1fr;
+}
+
+.panel-toolbar {
+  align-items: center;
+  border-bottom: 1px solid #e0e6eb;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 45px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.panel-toolbar strong {
+  color: #2f3d4c;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-toolbar button,
+.preview-controls button,
+.preview-controls a {
+  background: #24435f;
+  border: 1px solid #24435f;
+  border-radius: 6px;
+  color: #ffffff;
+  min-height: 34px;
+  padding: 7px 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.file-buttons {
+  align-content: start;
+  display: grid;
+  gap: 6px;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.file-button {
+  background: #f8fafb;
+  border: 1px solid #e0e6eb;
+  border-radius: 6px;
+  color: #263442;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.file-button.selected {
+  background: #edf6f8;
+  border-color: #5a9aaa;
+}
+
+.file-button span,
+.file-button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-button span {
+  font-weight: 700;
+}
+
+.file-button small {
+  color: #687586;
+}
+
+.editor-host,
+.preview-frame-wrap {
+  min-height: 420px;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.diff-output {
+  background: #101820;
+  color: #d7dee8;
+  font: 12px/1.5 "JetBrains Mono", Menlo, Monaco, Consolas, monospace;
+  margin: 0;
+  min-height: 420px;
+  overflow: auto;
+  padding: 12px;
+  white-space: pre-wrap;
+  word-break: break-word;
+}
+
+.panel-error {
+  background: #fff1f0;
+  border: 1px solid #f0b8b3;
+  border-radius: 6px;
+  color: #9d2b22;
+  margin: 8px 10px;
+  padding: 8px 10px;
+}
+
+.compact {
+  margin: 8px 10px;
+}
+
+.centered {
+  display: grid;
+  min-height: 100%;
+  place-items: center;
+}
+
+.preview-controls {
+  align-items: end;
+  border-bottom: 1px solid #d8dee6;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 10px;
+  padding: 10px;
+}
+
+.compact-field {
+  max-width: 150px;
+}
+
+.preview-frame {
+  border: 0;
+  height: min(68vh, 720px);
+  min-height: 420px;
+  width: 100%;
 }
 
 @media (max-width: 760px) {
@@ -301,5 +489,23 @@ button:disabled {
 
   .session-chip {
     max-width: 100%;
+  }
+
+  .file-panel,
+  .git-panel {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(160px, 32vh) minmax(360px, 1fr);
+  }
+
+  .file-list,
+  .git-change-list {
+    border-bottom: 1px solid #d8dee6;
+    border-right: 0;
+  }
+
+  .terminal-host,
+  .preview-frame {
+    height: 62vh;
+    min-height: 320px;
   }
 }

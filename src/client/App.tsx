@@ -2,17 +2,14 @@ import { useEffect, useMemo, useRef, useState } from "react";
 import type { BrowserLayout, Session, Workspace } from "../shared/types.js";
 import { api, isUnauthorized } from "./api.js";
 import { Dashboard } from "./components/Dashboard.js";
+import { FilePanel } from "./components/FilePanel.js";
+import { GitPanel } from "./components/GitPanel.js";
 import { Login } from "./components/Login.js";
+import { PreviewPanel } from "./components/PreviewPanel.js";
+import { TerminalPane } from "./components/TerminalPane.js";
 import { loadLayout, saveLayout } from "./layoutStore.js";
 
 const tabs: BrowserLayout["split"][] = ["terminal", "files", "git", "preview"];
-
-const placeholderText: Record<BrowserLayout["split"], string> = {
-  terminal: "Terminal panel will appear here.",
-  files: "File browser and editor will appear here.",
-  git: "Git status and diff tools will appear here.",
-  preview: "Preview controls will appear here.",
-};
 
 export function App() {
   const [isAuthenticated, setIsAuthenticated] = useState(false);
@@ -242,10 +239,10 @@ export function App() {
           ))}
         </nav>
 
-        <div className="placeholder-panel">
-          <h2>{layout.split}</h2>
-          <p>{placeholderText[layout.split]}</p>
-        </div>
+        {layout.split === "terminal" ? <TerminalPane sessionId={selectedSession?.id ?? null} /> : null}
+        {layout.split === "files" ? <FilePanel workspace={selectedWorkspace} /> : null}
+        {layout.split === "git" ? <GitPanel workspace={selectedWorkspace} /> : null}
+        {layout.split === "preview" ? <PreviewPanel workspace={selectedWorkspace} /> : null}
       </section>
     </main>
   );
