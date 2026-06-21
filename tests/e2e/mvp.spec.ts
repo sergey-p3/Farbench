@@ -33,52 +33,67 @@ async function closeServer(server: Server): Promise<void> {
   });
 }
 
-test("owner can open workspace and see durable browser shell UI", async ({ page }, testInfo) => {
+test("owner uses mobile focused item shell and restores last active item", async ({ page }, testInfo) => {
   const preview = await startPreviewServer();
   testInfo.annotations.push({
     type: "tmux",
     description: "tmux-backed session startup is not exercised here because the app has no E2E cleanup path for durable tmux sessions.",
   });
 
-  await page.context().clearCookies();
-  await page.goto("/");
-
   try {
+    await page.setViewportSize({ width: 390, height: 844 });
+    await page.context().clearCookies();
+    await page.goto("/");
+
     await page.getByLabel("Access token").fill("dev-password");
     await page.getByRole("button", { name: "Connect" }).click();
 
-    await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "e2e-workspace" })).toBeVisible();
-    await expect(page.getByRole("button", { name: "bash" })).toBeVisible();
+    await expect(page.getByRole("heading", { level: 1, name: "No item open" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workspaces" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Sessions" })).toHaveCount(0);
+    await expect(page.getByRole("button", { name: "Create item" })).toBeVisible();
 
-    await page.reload();
-    await expect(page.getByRole("heading", { name: "Workspaces" })).toBeVisible();
-    await expect(page.getByRole("heading", { name: "Sessions" })).toBeVisible();
-
-    await page.getByRole("button", { name: "files", exact: true }).click();
+    await page.getByRole("button", { name: "Create item" }).click();
+    await expect(page.getByRole("button", { name: "Files" })).toBeVisible();
+    await page.getByRole("button", { name: "Files" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
     await page.getByRole("button", { name: /src/ }).click();
     await page.getByRole("button", { name: /nested\.txt/ }).click();
     await expect(page.getByLabel("File editor").getByText("src/nested.txt")).toBeVisible();
     await expect(page.getByText("nested content")).toBeVisible();
-    await page.getByRole("button", { name: "Root" }).click();
-    await expect(page.getByRole("button", { name: /app\.txt/ })).toBeVisible();
-    await page.getByRole("button", { name: /app\.txt/ }).click();
-    await expect(page.getByLabel("File editor").getByText("app.txt")).toBeVisible();
-    await expect(page.getByText("changed line")).toBeVisible();
 
-    await page.getByRole("button", { name: "git", exact: true }).click();
+    await page.getByRole("button", { name: "Create item" }).click();
+    await page.getByRole("button", { name: "Files" }).click();
+    await expect(page.getByRole("heading", { level: 3, name: "Files is already open" })).toBeVisible();
+    await page.getByRole("button", { name: "Focus existing" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
+
+    await page.getByRole("button", { name: "Create item" }).click();
+    await page.getByRole("button", { name: "Git diff" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Git diff" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
-    await expect(page.getByRole("button", { name: /app\.txt/ })).toBeVisible();
     await page.getByRole("button", { name: /app\.txt/ }).click();
     await expect(page.getByLabel("Git diff").getByText("-original line")).toBeVisible();
     await expect(page.getByLabel("Git diff").getByText("+changed line")).toBeVisible();
 
-    await page.getByRole("button", { name: "preview", exact: true }).click();
+    await page.getByRole("button", { name: "Create item" }).click();
     await page.getByLabel("Port").fill(String(preview.port));
+    await page.getByRole("button", { name: "Preview" }).click();
+    await expect(page.getByRole("heading", { level: 1, name: new RegExp(`Preview :${preview.port}`) })).toBeVisible();
     await page.getByRole("button", { name: "Expose" }).click();
     await expect(page.getByRole("link", { name: "Open in new tab" })).toBeVisible();
     await expect(page.frameLocator(`iframe[title="Preview port ${preview.port}"]`).getByText("preview fixture ok")).toBeVisible();
+
+    await page.getByRole("button", { name: "Open item switcher" }).click();
+    await expect(page.getByLabel("Item switcher").getByRole("button", { name: /Files/ })).toBeVisible();
+    await expect(page.getByLabel("Item switcher").getByRole("button", { name: /Git diff/ })).toBeVisible();
+    await page.getByLabel("Item switcher").getByRole("button", { name: /Files/ }).click();
+    await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
+
+    await page.reload();
+    await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
+    await expect(page.getByRole("heading", { name: "Workspaces" })).toHaveCount(0);
+    await expect(page.getByRole("heading", { name: "Sessions" })).toHaveCount(0);
   } finally {
     await closeServer(preview.server);
   }
