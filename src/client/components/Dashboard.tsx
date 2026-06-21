@@ -1,6 +1,6 @@
 import { useState } from "react";
 import type { Session, SessionType, Workspace } from "../../shared/types.js";
-import { api } from "../api.js";
+import { api, isUnauthorized } from "../api.js";
 
 interface DashboardProps {
   workspaces: Workspace[];
@@ -10,6 +10,7 @@ interface DashboardProps {
   onSelectWorkspace: (workspaceId: string) => void;
   onSelectSession: (sessionId: string) => void;
   onSessionsChanged: (selectedSessionId?: string) => Promise<void>;
+  onUnauthorized: () => void;
 }
 
 const sessionTypes: SessionType[] = ["bash", "codex", "claude"];
@@ -22,6 +23,7 @@ export function Dashboard({
   onSelectWorkspace,
   onSelectSession,
   onSessionsChanged,
+  onUnauthorized,
 }: DashboardProps) {
   const [createError, setCreateError] = useState<string | null>(null);
   const [creatingType, setCreatingType] = useState<SessionType | null>(null);
@@ -35,6 +37,10 @@ export function Dashboard({
       const session = await api.createSession(selectedWorkspaceId, type, `${type} session`);
       await onSessionsChanged(session.id);
     } catch (error) {
+      if (isUnauthorized(error)) {
+        onUnauthorized();
+        return;
+      }
       setCreateError(error instanceof Error ? error.message : "Unable to start session");
     } finally {
       setCreatingType(null);

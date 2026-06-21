@@ -165,6 +165,7 @@ export function App() {
         onSelectWorkspace={(workspaceId) => void selectWorkspace(workspaceId)}
         onSelectSession={selectSession}
         onSessionsChanged={sessionsChanged}
+        onUnauthorized={resetToLogin}
       />
 
       <section className="workspace-panel" aria-label="Workspace">
