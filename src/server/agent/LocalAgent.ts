@@ -15,13 +15,14 @@ function versionFor(buffer: Buffer, mtimeMs: number): string {
 }
 
 function resourceFor(path: string, stats: { isDirectory(): boolean; size: number; mtimeMs: number }): FileResource {
+  const isDirectory = stats.isDirectory();
   return {
     path,
-    type: stats.isDirectory() ? "directory" : "file",
+    type: isDirectory ? "directory" : "file",
     size: stats.size,
     mtimeMs: stats.mtimeMs,
     isBinary: false,
-    canWrite: true,
+    canWrite: !isDirectory,
   };
 }
 
