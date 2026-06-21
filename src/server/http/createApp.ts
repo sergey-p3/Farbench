@@ -150,7 +150,11 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
     "/api/workspaces/:workspaceId/git/diff",
     asyncHandler(async (req, res) => {
       const workspace = getWorkspace(req.params.workspaceId);
-      const path = typeof req.query.path === "string" ? req.query.path : "";
+      const path = typeof req.query.path === "string" ? req.query.path.trim() : "";
+      if (!path) {
+        res.status(400).json({ error: "missing path" });
+        return;
+      }
       res.type("text/plain").send(await agent.gitDiff(workspace.rootPath, path));
     }),
   );
@@ -192,7 +196,13 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
       },
     );
 
-    upstream.on("error", next);
+    upstream.on("error", () => {
+      if (!res.headersSent) {
+        res.status(502).type("text/plain").send("preview target unavailable");
+      } else {
+        next(httpError(502, "preview target unavailable"));
+      }
+    });
     req.pipe(upstream);
   });
 

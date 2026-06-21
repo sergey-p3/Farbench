@@ -160,4 +160,45 @@ describe("manual preview proxy", () => {
     const socket = await openWebSocket(wsUrl, { cookie });
     await closeWebSocket(socket);
   });
+
+  it("returns a stable bad gateway when the preview target is unavailable", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    const deadTarget = http.createServer();
+    const deadPort = await listen(deadTarget);
+    await close(deadTarget);
+
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const config: ServerConfig = {
+      host: "127.0.0.1",
+      port: 0,
+      workspacePath: dir,
+      workspaceName: "demo",
+      dataDir: dir,
+      authToken: "dev-password",
+    };
+    const app = await createApp({ config, db });
+    servers.push(app);
+    const appPort = await listen(app);
+    const baseUrl = `http://127.0.0.1:${appPort}`;
+    const login = await fetch(`${baseUrl}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "dev-password" }),
+    });
+    const cookie = login.headers.get("set-cookie") ?? "";
+    const createPreview = await fetch(`${baseUrl}/api/workspaces/${workspace.id}/previews`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ port: deadPort }),
+    });
+    const { preview } = (await createPreview.json()) as { preview: PortPreview };
+
+    const response = await fetch(`${baseUrl}${preview.pathPrefix}/`, {
+      headers: { cookie },
+    });
+
+    expect(response.status).toBe(502);
+    expect(await response.text()).toBe("preview target unavailable");
+  });
 });
