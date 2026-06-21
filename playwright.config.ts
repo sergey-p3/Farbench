@@ -8,7 +8,7 @@ export default defineConfig({
     trace: "on-first-retry"
   },
   webServer: {
-    command: "npm run build && npm run dev",
+    command: "npm run build && node dist/server/cli.js serve --host 127.0.0.1 --port 3000 --workspace .",
     url: "http://127.0.0.1:3000",
     reuseExistingServer: true,
     timeout: 30_000
