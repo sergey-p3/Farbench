@@ -1,4 +1,4 @@
-import { mkdirSync, mkdtempSync, readFileSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
+import { mkdirSync, mkdtempSync, readFileSync, renameSync, rmSync, symlinkSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { afterEach, describe, expect, it } from "vitest";
@@ -14,8 +14,16 @@ afterEach(() => {
 describe("LocalAgent files", () => {
   class RacingLocalAgent extends LocalAgent {
     racePath: string | null = null;
+    replacementPath: string | null = null;
 
     protected async beforeWriteVersionCheck(): Promise<void> {
+      if (this.replacementPath) {
+        renameSync(this.replacementPath, this.racePath ?? this.replacementPath);
+        this.racePath = null;
+        this.replacementPath = null;
+        return;
+      }
+
       if (!this.racePath) return;
       writeFileSync(this.racePath, "changed during write");
       this.racePath = null;
@@ -84,6 +92,28 @@ describe("LocalAgent files", () => {
       }),
     ).rejects.toThrow("File changed on disk");
     expect(readFileSync(path, "utf8")).toBe("changed during write");
+  });
+
+  it("rejects when the requested path is replaced during save", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    const path = join(root, "note.txt");
+    const replacementPath = join(root, "replacement.txt");
+    writeFileSync(path, "first");
+    writeFileSync(replacementPath, "replacement content");
+    const agent = new RacingLocalAgent();
+    const read = await agent.readFile({ rootPath: root, path: "note.txt" });
+    agent.racePath = path;
+    agent.replacementPath = replacementPath;
+
+    await expect(
+      agent.writeFile({
+        rootPath: root,
+        path: "note.txt",
+        content: "browser edit",
+        expectedVersion: read.version,
+      }),
+    ).rejects.toThrow("File changed on disk");
+    expect(readFileSync(path, "utf8")).toBe("replacement content");
   });
 
   it("marks invalid utf8 files as binary and rejects reading them", async () => {

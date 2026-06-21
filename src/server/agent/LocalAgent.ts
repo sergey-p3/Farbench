@@ -24,6 +24,10 @@ function versionFor(buffer: Buffer, mtimeMs: number): string {
   return createHash("sha256").update(buffer).update(String(mtimeMs)).digest("hex");
 }
 
+function isSameFileIdentity(a: { dev: number; ino: number }, b: { dev: number; ino: number }): boolean {
+  return a.dev === b.dev && a.ino === b.ino;
+}
+
 function resourceFor(
   path: string,
   stats: { isDirectory(): boolean; size: number; mtimeMs: number },
@@ -80,7 +84,11 @@ export class LocalAgent implements AgentGateway {
     const handle = await open(resolved.absolutePath, "r+");
     try {
       await this.beforeWriteVersionCheck();
-      const stats = await handle.stat();
+      const [stats, pathStats] = await Promise.all([handle.stat(), stat(resolved.absolutePath)]);
+      if (!isSameFileIdentity(stats, pathStats)) {
+        throw new Error("File changed on disk");
+      }
+
       const buffer = await handle.readFile();
 
       if (versionFor(buffer, stats.mtimeMs) !== input.expectedVersion) {
