@@ -43,7 +43,16 @@ function requestPort(value: unknown): number {
 function proxyHeaders(headers: IncomingHttpHeaders, port: number): IncomingHttpHeaders {
   const nextHeaders = { ...headers };
   delete nextHeaders.host;
+  delete nextHeaders.cookie;
+  delete nextHeaders.authorization;
+  delete nextHeaders["proxy-authorization"];
   nextHeaders.host = `127.0.0.1:${port}`;
+  return nextHeaders;
+}
+
+function proxyResponseHeaders(headers: IncomingHttpHeaders): IncomingHttpHeaders {
+  const nextHeaders = { ...headers };
+  delete nextHeaders["set-cookie"];
   return nextHeaders;
 }
 
@@ -176,7 +185,7 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
       },
       (upstreamResponse) => {
         res.statusCode = upstreamResponse.statusCode ?? 502;
-        for (const [name, value] of Object.entries(upstreamResponse.headers)) {
+        for (const [name, value] of Object.entries(proxyResponseHeaders(upstreamResponse.headers))) {
           if (value !== undefined) res.setHeader(name, value);
         }
         upstreamResponse.pipe(res);
@@ -206,6 +215,11 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
   registerTerminalSocket(terminalSocket, db);
   server.on("upgrade", (req, socket, head) => {
     if (!req.url?.startsWith("/ws/terminal")) {
+      socket.destroy();
+      return;
+    }
+    if (!auth.isValid(req as Request)) {
+      socket.write("HTTP/1.1 401 Unauthorized\r\nConnection: close\r\nContent-Length: 0\r\n\r\n");
       socket.destroy();
       return;
     }

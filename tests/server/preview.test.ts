@@ -2,6 +2,7 @@ import http, { type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
+import WebSocket from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../../src/server/http/createApp.js";
 import type { ServerConfig } from "../../src/server/config.js";
@@ -30,6 +31,40 @@ function close(server: Server): Promise<void> {
   });
 }
 
+function openWebSocket(url: string, headers?: Record<string, string>): Promise<WebSocket> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url, { headers });
+    socket.once("open", () => resolve(socket));
+    socket.once("error", reject);
+    socket.once("unexpected-response", (_request, response) => {
+      reject(new Error(`unexpected response ${response.statusCode}`));
+    });
+  });
+}
+
+function rejectWebSocket(url: string): Promise<void> {
+  return new Promise((resolve, reject) => {
+    const socket = new WebSocket(url);
+    socket.once("open", () => {
+      socket.close();
+      reject(new Error("websocket opened"));
+    });
+    socket.once("error", () => resolve());
+    socket.once("unexpected-response", (_request, response) => {
+      if (response.statusCode === 401) resolve();
+      else reject(new Error(`unexpected response ${response.statusCode}`));
+    });
+  });
+}
+
+function closeWebSocket(socket: WebSocket): Promise<void> {
+  if (socket.readyState === WebSocket.CLOSED) return Promise.resolve();
+  return new Promise((resolve) => {
+    socket.once("close", () => resolve());
+    socket.close();
+  });
+}
+
 afterEach(async () => {
   await Promise.all(servers.splice(0).map(close));
   if (dir) rmSync(dir, { recursive: true, force: true });
@@ -39,7 +74,10 @@ afterEach(async () => {
 describe("manual preview proxy", () => {
   it("creates an authenticated preview and proxies requests to the stored local port", async () => {
     dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    let observedCookie: string | undefined;
     const target = http.createServer((_req, res) => {
+      observedCookie = _req.headers.cookie;
+      res.setHeader("set-cookie", "preview_session=leaked");
       res.end("preview ok");
     });
     servers.push(target);
@@ -87,6 +125,39 @@ describe("manual preview proxy", () => {
       headers: { cookie },
     });
     expect(proxied.status).toBe(200);
+    expect(observedCookie).toBeUndefined();
+    expect(proxied.headers.get("set-cookie")).toBeNull();
     expect(await proxied.text()).toBe("preview ok");
+  });
+
+  it("requires authentication for terminal websocket upgrades", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    const db = createDatabase(join(dir, "state.db"));
+    db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const config: ServerConfig = {
+      host: "127.0.0.1",
+      port: 0,
+      workspacePath: dir,
+      workspaceName: "demo",
+      dataDir: dir,
+      authToken: "dev-password",
+    };
+    const app = await createApp({ config, db });
+    servers.push(app);
+    const appPort = await listen(app);
+    const baseUrl = `http://127.0.0.1:${appPort}`;
+    const wsUrl = `ws://127.0.0.1:${appPort}/ws/terminal`;
+
+    await expect(rejectWebSocket(wsUrl)).resolves.toBeUndefined();
+
+    const login = await fetch(`${baseUrl}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "dev-password" }),
+    });
+    const cookie = login.headers.get("set-cookie") ?? "";
+
+    const socket = await openWebSocket(wsUrl, { cookie });
+    await closeWebSocket(socket);
   });
 });
