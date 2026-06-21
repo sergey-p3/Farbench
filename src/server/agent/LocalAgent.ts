@@ -69,7 +69,7 @@ export class LocalAgent implements AgentGateway {
     }
 
     return {
-      resource: resourceFor(resolved.relativePath, stats, false),
+      resource: resourceFor(input.path, stats, false),
       content: buffer.toString("utf8"),
       version: versionFor(buffer, stats.mtimeMs),
     };

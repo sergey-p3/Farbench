@@ -48,6 +48,25 @@ describe("LocalAgent files", () => {
     expect(resources).toContainEqual(expect.objectContaining({ path: "alias.txt", type: "file" }));
   });
 
+  it("keeps internal symlink names in read and write responses", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    writeFileSync(join(root, "actual.txt"), "first");
+    symlinkSync("actual.txt", join(root, "alias.txt"));
+    const agent = new LocalAgent();
+
+    const read = await agent.readFile({ rootPath: root, path: "alias.txt" });
+    const written = await agent.writeFile({
+      rootPath: root,
+      path: "alias.txt",
+      content: "browser edit",
+      expectedVersion: read.version,
+    });
+
+    expect(read.resource.path).toBe("alias.txt");
+    expect(written.resource.path).toBe("alias.txt");
+    expect(readFileSync(join(root, "actual.txt"), "utf8")).toBe("browser edit");
+  });
+
   it("rejects an intervening write during save without overwriting it", async () => {
     root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
     const path = join(root, "note.txt");
