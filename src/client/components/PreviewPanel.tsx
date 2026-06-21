@@ -1,4 +1,4 @@
-import { useState } from "react";
+import { useEffect, useRef, useState } from "react";
 import type { PortPreview, Workspace } from "../../shared/types.js";
 import { api, isUnauthorized } from "../api.js";
 
@@ -7,22 +7,41 @@ interface PreviewPanelProps {
 }
 
 export function PreviewPanel({ workspace }: PreviewPanelProps) {
+  const workspaceIdRef = useRef<string | null>(workspace?.id ?? null);
+  const previewRequestRef = useRef(0);
   const [port, setPort] = useState(3000);
   const [preview, setPreview] = useState<PortPreview | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [error, setError] = useState<string | null>(null);
 
+  useEffect(() => {
+    workspaceIdRef.current = workspace?.id ?? null;
+    previewRequestRef.current += 1;
+    setPreview(null);
+    setIsLoading(false);
+    setError(null);
+  }, [workspace?.id]);
+
   async function exposePreview() {
     if (!workspace) return;
+    const workspaceId = workspace.id;
+    const requestId = ++previewRequestRef.current;
     setIsLoading(true);
     setError(null);
     try {
-      setPreview(await api.createPreview(workspace.id, port));
+      const nextPreview = await api.createPreview(workspaceId, port);
+      if (!isCurrentPreviewRequest(workspaceId, requestId)) return;
+      setPreview(nextPreview);
     } catch (previewError) {
+      if (!isCurrentPreviewRequest(workspaceId, requestId)) return;
       setError(panelError(previewError, "Unable to create preview"));
     } finally {
-      setIsLoading(false);
+      if (isCurrentPreviewRequest(workspaceId, requestId)) setIsLoading(false);
     }
+  }
+
+  function isCurrentPreviewRequest(workspaceId: string, requestId: number): boolean {
+    return workspaceIdRef.current === workspaceId && previewRequestRef.current === requestId;
   }
 
   if (!workspace) {

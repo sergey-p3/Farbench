@@ -1,5 +1,5 @@
 import { Editor } from "@monaco-editor/react";
-import { useEffect, useMemo, useState } from "react";
+import { useEffect, useMemo, useRef, useState } from "react";
 import type { FileResource, Workspace } from "../../shared/types.js";
 import { ApiError, api, isUnauthorized } from "../api.js";
 
@@ -8,6 +8,11 @@ interface FilePanelProps {
 }
 
 export function FilePanel({ workspace }: FilePanelProps) {
+  const workspaceIdRef = useRef<string | null>(workspace?.id ?? null);
+  const selectedPathRef = useRef<string | null>(null);
+  const filesRequestRef = useRef(0);
+  const openRequestRef = useRef(0);
+  const saveRequestRef = useRef(0);
   const [files, setFiles] = useState<FileResource[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [content, setContent] = useState("");
@@ -21,60 +26,96 @@ export function FilePanel({ workspace }: FilePanelProps) {
   const openableFiles = useMemo(() => files.filter((file) => file.type === "file" && !file.isBinary), [files]);
 
   useEffect(() => {
+    selectedPathRef.current = selectedPath;
+  }, [selectedPath]);
+
+  useEffect(() => {
+    workspaceIdRef.current = workspace?.id ?? null;
+    filesRequestRef.current += 1;
+    openRequestRef.current += 1;
+    saveRequestRef.current += 1;
     setFiles([]);
     setSelectedPath(null);
+    selectedPathRef.current = null;
     setContent("");
     setSavedContent("");
     setExpectedVersion(null);
+    setIsLoading(false);
+    setIsSaving(false);
     setError(null);
 
     if (!workspace) return;
-    void loadFiles(workspace.id);
+    void loadFiles(workspace.id, filesRequestRef.current);
   }, [workspace?.id]);
 
-  async function loadFiles(workspaceId: string) {
+  async function loadFiles(workspaceId: string, requestId: number) {
     setIsLoading(true);
     setError(null);
     try {
-      setFiles(await api.files(workspaceId));
+      const nextFiles = await api.files(workspaceId);
+      if (!isCurrentFilesRequest(workspaceId, requestId)) return;
+      setFiles(nextFiles);
     } catch (loadError) {
+      if (!isCurrentFilesRequest(workspaceId, requestId)) return;
       setError(panelError(loadError, "Unable to load files"));
     } finally {
-      setIsLoading(false);
+      if (isCurrentFilesRequest(workspaceId, requestId)) setIsLoading(false);
     }
   }
 
   async function openFile(path: string) {
     if (!workspace) return;
+    const workspaceId = workspace.id;
+    const requestId = ++openRequestRef.current;
     setIsLoading(true);
     setError(null);
     try {
-      const response = await api.readFile(workspace.id, path);
+      const response = await api.readFile(workspaceId, path);
+      if (!isCurrentOpenRequest(workspaceId, path, requestId)) return;
       setSelectedPath(path);
+      selectedPathRef.current = path;
       setContent(response.content);
       setSavedContent(response.content);
       setExpectedVersion(response.version);
     } catch (openError) {
+      if (!isCurrentOpenRequest(workspaceId, path, requestId)) return;
       setError(panelError(openError, "Unable to open file"));
     } finally {
-      setIsLoading(false);
+      if (isCurrentOpenRequest(workspaceId, path, requestId)) setIsLoading(false);
     }
   }
 
   async function saveFile() {
     if (!workspace || !selectedPath || !expectedVersion || !dirty) return;
+    const workspaceId = workspace.id;
+    const path = selectedPath;
+    const requestId = ++saveRequestRef.current;
     setIsSaving(true);
     setError(null);
     try {
-      const response = await api.saveFile(workspace.id, selectedPath, content, expectedVersion);
+      const response = await api.saveFile(workspaceId, path, content, expectedVersion);
+      if (!isCurrentSaveRequest(workspaceId, path, requestId)) return;
       setContent(response.content);
       setSavedContent(response.content);
       setExpectedVersion(response.version);
     } catch (saveError) {
+      if (!isCurrentSaveRequest(workspaceId, path, requestId)) return;
       setError(isConflict(saveError) ? "File changed on disk. Reload before saving." : panelError(saveError, "Unable to save file"));
     } finally {
-      setIsSaving(false);
+      if (isCurrentSaveRequest(workspaceId, path, requestId)) setIsSaving(false);
     }
+  }
+
+  function isCurrentFilesRequest(workspaceId: string, requestId: number): boolean {
+    return workspaceIdRef.current === workspaceId && filesRequestRef.current === requestId;
+  }
+
+  function isCurrentOpenRequest(workspaceId: string, path: string, requestId: number): boolean {
+    return workspaceIdRef.current === workspaceId && openRequestRef.current === requestId && path !== "";
+  }
+
+  function isCurrentSaveRequest(workspaceId: string, path: string, requestId: number): boolean {
+    return workspaceIdRef.current === workspaceId && selectedPathRef.current === path && saveRequestRef.current === requestId;
   }
 
   if (!workspace) {

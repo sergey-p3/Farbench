@@ -25,6 +25,8 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
   const [status, setStatus] = useState<string | null>(null);
 
   useEffect(() => {
+    setStatus(null);
+
     if (!sessionId || !containerRef.current) {
       return;
     }
@@ -58,7 +60,7 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     };
 
     const sendResize = () => {
-      if (socket.readyState !== WebSocket.OPEN) return;
+      if (!isCurrentSocket() || socket.readyState !== WebSocket.OPEN) return;
       socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
     };
 
@@ -70,12 +72,13 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     fit();
     window.addEventListener("resize", handleResize);
     const dataDisposable = terminal.onData((data) => {
-      if (socket.readyState === WebSocket.OPEN) {
+      if (isCurrentSocket() && socket.readyState === WebSocket.OPEN) {
         socket.send(JSON.stringify({ type: "input", data }));
       }
     });
 
     socket.addEventListener("open", () => {
+      if (!isCurrentSocket()) return;
       fit();
       socket.send(JSON.stringify({ type: "attach", sessionId, cols: terminal.cols, rows: terminal.rows }));
       setStatus(null);
@@ -83,6 +86,7 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     });
 
     socket.addEventListener("message", (event) => {
+      if (!isCurrentSocket()) return;
       const message = parseTerminalMessage(event.data);
       if (!message) return;
 
@@ -108,19 +112,24 @@ export function TerminalPane({ sessionId }: TerminalPaneProps) {
     });
 
     socket.addEventListener("close", () => {
-      if (socketRef.current === socket) setStatus("Terminal disconnected.");
+      if (isCurrentSocket()) setStatus("Terminal disconnected.");
     });
 
     socket.addEventListener("error", () => {
+      if (!isCurrentSocket()) return;
       setStatus("Unable to connect to terminal.");
     });
+
+    function isCurrentSocket(): boolean {
+      return socketRef.current === socket && terminalRef.current === terminal;
+    }
 
     return () => {
       window.removeEventListener("resize", handleResize);
       dataDisposable.dispose();
-      socketRef.current = null;
-      terminalRef.current = null;
-      fitAddonRef.current = null;
+      if (socketRef.current === socket) socketRef.current = null;
+      if (terminalRef.current === terminal) terminalRef.current = null;
+      if (fitAddonRef.current === fitAddon) fitAddonRef.current = null;
       socket.close();
       terminal.dispose();
     };
