@@ -23,6 +23,28 @@ describe("parseServeArgs", () => {
     expect(config.authToken).toBe("dev-password");
   });
 
+  it("allows the development token for localhost", () => {
+    const config = parseServeArgs([...dataDirArgs(), "--host", "localhost"]);
+
+    expect(config.authToken).toBe("dev-password");
+  });
+
+  it("allows the development token for IPv6 loopback", () => {
+    const config = parseServeArgs([...dataDirArgs(), "--host", "::1"]);
+
+    expect(config.authToken).toBe("dev-password");
+  });
+
+  it("requires an explicit auth token for 127-prefixed hostnames", () => {
+    expect(() => parseServeArgs([...dataDirArgs(), "--host", "127.example.com"])).toThrow(/--auth-token is required/i);
+  });
+
+  it("allows 127-prefixed hostnames with an explicit auth token", () => {
+    const config = parseServeArgs([...dataDirArgs(), "--host", "127.example.com", "--auth-token", "secret"]);
+
+    expect(config.authToken).toBe("secret");
+  });
+
   it("requires an explicit auth token when binding to all interfaces", () => {
     expect(() => parseServeArgs([...dataDirArgs(), "--host", "0.0.0.0"])).toThrow(/--auth-token is required/i);
   });

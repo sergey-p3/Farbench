@@ -1,4 +1,5 @@
 import { mkdirSync } from "node:fs";
+import { isIP } from "node:net";
 import { homedir, networkInterfaces } from "node:os";
 import { basename, resolve } from "node:path";
 
@@ -12,7 +13,8 @@ export interface ServerConfig {
 }
 
 function isLoopbackHost(host: string): boolean {
-  return host === "localhost" || host === "::1" || host.startsWith("127.");
+  if (host === "localhost" || host === "::1") return true;
+  return isIP(host) === 4 && host.startsWith("127.");
 }
 
 export function parseServeArgs(argv: string[]): ServerConfig {
