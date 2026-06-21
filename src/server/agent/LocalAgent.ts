@@ -7,6 +7,7 @@ import { nanoid } from "nanoid";
 import type { FileReadResponse, FileResource, GitStatusResponse, PortPreview } from "../../shared/types.js";
 import type { AgentGateway, CreateSessionInput, WriteFileInput } from "./AgentGateway.js";
 import { resolveWorkspacePath } from "../pathPolicy.js";
+import { TmuxManager } from "../terminal/TmuxManager.js";
 
 const strictUtf8Decoder = new TextDecoder("utf-8", { fatal: true });
 const writeLocks = new Map<string, Promise<void>>();
@@ -85,6 +86,8 @@ function resourceFor(
 }
 
 export class LocalAgent implements AgentGateway {
+  constructor(private readonly tmux = new TmuxManager()) {}
+
   async listFiles(rootPath: string, path: string): Promise<FileResource[]> {
     const resolved = resolveWorkspacePath(rootPath, path);
     await this.beforeListOpen();
@@ -273,14 +276,16 @@ export class LocalAgent implements AgentGateway {
   }
 
   async createTerminalSession(input: CreateSessionInput): Promise<{ tmuxName: string }> {
-    return { tmuxName: `remote-dev-${input.workspaceId}-${nanoid(8)}` };
+    return { tmuxName: await this.tmux.create(input.rootPath, input.type) };
   }
 
-  async captureScrollback(_tmuxName: string): Promise<string> {
-    return "";
+  async captureScrollback(tmuxName: string): Promise<string> {
+    return this.tmux.capture(tmuxName);
   }
 
-  async killSession(_tmuxName: string): Promise<void> {}
+  async killSession(tmuxName: string): Promise<void> {
+    await this.tmux.kill(tmuxName);
+  }
 
   async createPreview(workspaceId: string, port: number): Promise<PortPreview> {
     return {
