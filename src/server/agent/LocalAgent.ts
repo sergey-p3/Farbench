@@ -25,8 +25,13 @@ function isLikelyBinary(buffer: Buffer): boolean {
   }
 }
 
-function versionFor(buffer: Buffer, mtimeMs: number): string {
-  return createHash("sha256").update(buffer).update(String(mtimeMs)).digest("hex");
+function versionFor(buffer: Buffer, stats: { dev: number; ino: number; mtimeMs: number }): string {
+  return createHash("sha256")
+    .update(buffer)
+    .update(String(stats.dev))
+    .update(String(stats.ino))
+    .update(String(stats.mtimeMs))
+    .digest("hex");
 }
 
 function isSameFileIdentity(a: { dev: number; ino: number }, b: { dev: number; ino: number }): boolean {
@@ -134,7 +139,7 @@ export class LocalAgent implements AgentGateway {
     return {
       resource: resourceFor(input.path, stats, false),
       content: buffer.toString("utf8"),
-      version: versionFor(buffer, stats.mtimeMs),
+      version: versionFor(buffer, stats),
     };
   }
 
@@ -156,7 +161,7 @@ export class LocalAgent implements AgentGateway {
 
         const buffer = await handle.readFile();
 
-        if (versionFor(buffer, stats.mtimeMs) !== input.expectedVersion) {
+        if (versionFor(buffer, stats) !== input.expectedVersion) {
           throw new Error("File changed on disk");
         }
 

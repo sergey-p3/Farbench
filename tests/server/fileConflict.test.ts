@@ -500,4 +500,29 @@ describe("LocalAgent files", () => {
       }),
     ).rejects.toThrow("File changed on disk");
   });
+
+  it("blocks save when file is replaced with same content and mtime", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    const path = join(root, "note.txt");
+    const replacementPath = join(root, "replacement.txt");
+    writeFileSync(path, "first");
+    const fixedTime = new Date("2026-01-01T00:00:00.000Z");
+    utimesSync(path, fixedTime, fixedTime);
+    const agent = new LocalAgent();
+    const read = await agent.readFile({ rootPath: root, path: "note.txt" });
+
+    writeFileSync(replacementPath, "first");
+    utimesSync(replacementPath, fixedTime, fixedTime);
+    renameSync(replacementPath, path);
+
+    await expect(
+      agent.writeFile({
+        rootPath: root,
+        path: "note.txt",
+        content: "browser edit",
+        expectedVersion: read.version,
+      }),
+    ).rejects.toThrow("File changed on disk");
+    expect(readFileSync(path, "utf8")).toBe("first");
+  });
 });
