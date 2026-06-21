@@ -1,4 +1,5 @@
 import {
+  linkSync,
   mkdirSync,
   mkdtempSync,
   readFileSync,
@@ -433,6 +434,41 @@ describe("LocalAgent files", () => {
     expect(rejected[0]).toEqual(expect.objectContaining({ reason: expect.any(Error) }));
     expect((rejected[0] as PromiseRejectedResult).reason.message).toBe("File changed on disk");
     expect(["browser edit 1", "browser edit 2"]).toContain(readFileSync(path, "utf8"));
+  });
+
+  it("serializes concurrent saves through hard-link aliases", async () => {
+    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    const firstPath = join(root, "a.txt");
+    const secondPath = join(root, "b.txt");
+    writeFileSync(firstPath, "first");
+    linkSync(firstPath, secondPath);
+    const agent = new LocalAgent();
+    const read = await agent.readFile({ rootPath: root, path: "a.txt" });
+
+    const results = await Promise.allSettled([
+      agent.writeFile({
+        rootPath: root,
+        path: "a.txt",
+        content: "browser edit 1",
+        expectedVersion: read.version,
+      }),
+      agent.writeFile({
+        rootPath: root,
+        path: "b.txt",
+        content: "browser edit 2",
+        expectedVersion: read.version,
+      }),
+    ]);
+
+    const fulfilled = results.filter((result) => result.status === "fulfilled");
+    const rejected = results.filter((result) => result.status === "rejected");
+
+    expect(fulfilled).toHaveLength(1);
+    expect(rejected).toHaveLength(1);
+    expect(rejected[0]).toEqual(expect.objectContaining({ reason: expect.any(Error) }));
+    expect((rejected[0] as PromiseRejectedResult).reason.message).toBe("File changed on disk");
+    expect(["browser edit 1", "browser edit 2"]).toContain(readFileSync(firstPath, "utf8"));
+    expect(readFileSync(secondPath, "utf8")).toBe(readFileSync(firstPath, "utf8"));
   });
 
   it("marks invalid utf8 files as binary and rejects reading them", async () => {

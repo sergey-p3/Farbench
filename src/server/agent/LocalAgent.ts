@@ -33,6 +33,10 @@ function isSameFileIdentity(a: { dev: number; ino: number }, b: { dev: number; i
   return a.dev === b.dev && a.ino === b.ino;
 }
 
+function fileIdentityKey(stats: { dev: number; ino: number }): string {
+  return `${stats.dev}:${stats.ino}`;
+}
+
 function assertSameResolvedTarget(currentAbsolutePath: string, originalAbsolutePath: string): void {
   if (currentAbsolutePath !== originalAbsolutePath) {
     throw new Error("File changed on disk");
@@ -136,7 +140,8 @@ export class LocalAgent implements AgentGateway {
 
   async writeFile(input: WriteFileInput): Promise<FileReadResponse> {
     const resolved = resolveWorkspacePath(input.rootPath, input.path);
-    return withWriteLock(resolved.absolutePath, async () => {
+    const lockKey = fileIdentityKey(await stat(resolved.absolutePath));
+    return withWriteLock(lockKey, async () => {
       await this.beforeWriteOpen();
       assertSameResolvedTarget(resolveWorkspacePath(input.rootPath, input.path).absolutePath, resolved.absolutePath);
       await this.beforeWriteFileOpen();
