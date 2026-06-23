@@ -3,6 +3,7 @@ import { FitAddon } from "xterm-addon-fit";
 import { Terminal } from "xterm";
 import { api, isUnauthorized } from "../api.js";
 import { terminalControlSequence, terminalKeyLabels, type TerminalToolbarKey } from "../terminalKeys.js";
+import { terminalKeyboardChromeInset } from "../terminalViewport.js";
 
 interface TerminalPaneProps {
   sessionId: string | null;
@@ -24,12 +25,22 @@ export function terminalSocketUrl(locationLike: Pick<Location, "protocol" | "hos
 export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: TerminalPaneProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
+  const scrollRailRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const isCtrlActiveRef = useRef(false);
+  const skipNextToolbarClickRef = useRef(false);
+  const skipNextScrollClickRef = useRef(false);
   const [status, setStatus] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [isCtrlActive, setIsCtrlActive] = useState(false);
+
+  const updateCtrlActive = useCallback((next: boolean | ((current: boolean) => boolean)) => {
+    const nextValue = typeof next === "function" ? next(isCtrlActiveRef.current) : next;
+    isCtrlActiveRef.current = nextValue;
+    setIsCtrlActive(nextValue);
+  }, []);
 
   const sendTerminalInput = useCallback((data: string) => {
     const socket = socketRef.current;
@@ -39,21 +50,60 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
 
   const handleToolbarKey = useCallback((key: TerminalToolbarKey) => {
     if (key === "ctrl") {
-      setIsCtrlActive((current) => !current);
-      terminalRef.current?.focus();
+      updateCtrlActive((current) => !current);
       return;
     }
 
-    const sequence = terminalControlSequence(key, isCtrlActive);
+    const sequence = terminalControlSequence(key, isCtrlActiveRef.current);
     if (!sequence) return;
     sendTerminalInput(sequence.data);
-    if (sequence.clearsCtrl) setIsCtrlActive(false);
-    terminalRef.current?.focus();
-  }, [isCtrlActive, sendTerminalInput]);
+    if (sequence.clearsCtrl) updateCtrlActive(false);
+  }, [sendTerminalInput, updateCtrlActive]);
+
+  const preserveTerminalFocus = useCallback((event: React.PointerEvent<HTMLButtonElement> | React.TouchEvent<HTMLButtonElement>) => {
+    event.preventDefault();
+  }, []);
+
+  const handleToolbarTouchEnd = useCallback((event: React.TouchEvent<HTMLButtonElement>, key: TerminalToolbarKey) => {
+    event.preventDefault();
+    skipNextToolbarClickRef.current = true;
+    handleToolbarKey(key);
+  }, [handleToolbarKey]);
+
+  const handleToolbarClick = useCallback((key: TerminalToolbarKey) => {
+    if (skipNextToolbarClickRef.current) {
+      skipNextToolbarClickRef.current = false;
+      return;
+    }
+    handleToolbarKey(key);
+  }, [handleToolbarKey]);
+
+  const scrollTerminalPages = useCallback((pages: number) => {
+    const terminal = terminalRef.current;
+    const socket = socketRef.current;
+    if (socket && socket.readyState === WebSocket.OPEN) {
+      socket.send(JSON.stringify({ type: "scroll", direction: pages < 0 ? "up" : "down" }));
+    }
+    terminal?.focus();
+  }, []);
+
+  const handleScrollTouchEnd = useCallback((event: React.TouchEvent<HTMLButtonElement>, pages: number) => {
+    event.preventDefault();
+    skipNextScrollClickRef.current = true;
+    scrollTerminalPages(pages);
+  }, [scrollTerminalPages]);
+
+  const handleScrollClick = useCallback((pages: number) => {
+    if (skipNextScrollClickRef.current) {
+      skipNextScrollClickRef.current = false;
+      return;
+    }
+    scrollTerminalPages(pages);
+  }, [scrollTerminalPages]);
 
   useEffect(() => {
     setStatus(null);
-    setIsCtrlActive(false);
+    updateCtrlActive(false);
 
     if (!sessionId || !containerRef.current) {
       return;
@@ -102,6 +152,13 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       const viewport = window.visualViewport;
       if (rootRef.current && viewport) {
         rootRef.current.style.setProperty("--terminal-visual-height", `${viewport.height}px`);
+        rootRef.current.style.setProperty("--terminal-keyboard-chrome-inset", `${terminalKeyboardChromeInset({
+          innerHeight: window.innerHeight,
+          maxTouchPoints: navigator.maxTouchPoints,
+          userAgent: navigator.userAgent,
+          visualViewportHeight: viewport.height,
+          visualViewportOffsetTop: viewport.offsetTop,
+        })}px`);
       }
       fitAndResize();
     };
@@ -112,8 +169,74 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     window.visualViewport?.addEventListener("scroll", syncVisualViewport);
     const resizeObserver = new ResizeObserver(fitAndResize);
     resizeObserver.observe(containerRef.current);
+
+    let lastTouchY: number | null = null;
+    let pendingTouchScrollRows = 0;
+    const touchScrollTarget = containerRef.current;
+    const scrollRail = scrollRailRef.current;
+    const beginTouchScroll = (event: TouchEvent) => {
+      const touchY = touchScrollY(event.touches);
+      if (touchY !== null) {
+        lastTouchY = touchY;
+        pendingTouchScrollRows = 0;
+        terminal.focus();
+        return;
+      }
+      lastTouchY = null;
+    };
+    const moveTouchScroll = (event: TouchEvent) => {
+      if (lastTouchY === null) return;
+      const nextY = touchScrollY(event.touches);
+      if (nextY === null) return;
+      const viewport = touchScrollTarget.querySelector(".xterm-viewport");
+      if (!(viewport instanceof HTMLElement)) {
+        lastTouchY = nextY;
+        return;
+      }
+
+      const deltaY = lastTouchY - nextY;
+      const rowHeight = Math.max(1, terminal.element?.querySelector(".xterm-rows > div")?.getBoundingClientRect().height ?? 15);
+      pendingTouchScrollRows += deltaY / rowHeight;
+      const rowsToScroll = Math.trunc(pendingTouchScrollRows);
+      const before = viewport.scrollTop;
+      if (rowsToScroll !== 0) {
+        terminal.scrollLines(rowsToScroll);
+        pendingTouchScrollRows -= rowsToScroll;
+      }
+      if (viewport.scrollTop === before) {
+        viewport.scrollTop += deltaY;
+      }
+      lastTouchY = nextY;
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+    };
+    const resetTouchScroll = () => {
+      lastTouchY = null;
+    };
+    touchScrollTarget.addEventListener("touchstart", beginTouchScroll, { capture: true, passive: true });
+    touchScrollTarget.addEventListener("touchmove", moveTouchScroll, { capture: true, passive: false });
+    touchScrollTarget.addEventListener("touchend", resetTouchScroll, true);
+    touchScrollTarget.addEventListener("touchcancel", resetTouchScroll, true);
+    scrollRail?.addEventListener("touchstart", beginTouchScroll, { capture: true, passive: true });
+    scrollRail?.addEventListener("touchmove", moveTouchScroll, { capture: true, passive: false });
+    scrollRail?.addEventListener("touchend", resetTouchScroll, true);
+    scrollRail?.addEventListener("touchcancel", resetTouchScroll, true);
+
     const dataDisposable = terminal.onData((data) => {
-      setIsCtrlActive(false);
+      if (isCtrlActiveRef.current) {
+        const controlKey = controlLetterKey(data);
+        updateCtrlActive(false);
+        if (controlKey) {
+          const sequence = terminalControlSequence(controlKey, true);
+          if (sequence) {
+            sendTerminalInput(sequence.data);
+            return;
+          }
+        }
+      } else {
+        updateCtrlActive(false);
+      }
       sendTerminalInput(data);
     });
 
@@ -189,6 +312,14 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       window.visualViewport?.removeEventListener("resize", syncVisualViewport);
       window.visualViewport?.removeEventListener("scroll", syncVisualViewport);
       resizeObserver.disconnect();
+      touchScrollTarget.removeEventListener("touchstart", beginTouchScroll, true);
+      touchScrollTarget.removeEventListener("touchmove", moveTouchScroll, true);
+      touchScrollTarget.removeEventListener("touchend", resetTouchScroll, true);
+      touchScrollTarget.removeEventListener("touchcancel", resetTouchScroll, true);
+      scrollRail?.removeEventListener("touchstart", beginTouchScroll, true);
+      scrollRail?.removeEventListener("touchmove", moveTouchScroll, true);
+      scrollRail?.removeEventListener("touchend", resetTouchScroll, true);
+      scrollRail?.removeEventListener("touchcancel", resetTouchScroll, true);
       dataDisposable.dispose();
       if (socketRef.current === socket) socketRef.current = null;
       if (terminalRef.current === terminal) terminalRef.current = null;
@@ -196,7 +327,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       socket.close();
       terminal.dispose();
     };
-  }, [onUnauthorized, retryNonce, sendTerminalInput, sessionId]);
+  }, [onUnauthorized, retryNonce, sendTerminalInput, sessionId, updateCtrlActive]);
 
   if (!sessionId) {
     return (
@@ -218,7 +349,35 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
           </div>
         </div>
       ) : null}
-      <div className="terminal-host" ref={containerRef} />
+      <div className="terminal-stage">
+        <div className="terminal-host" ref={containerRef} />
+        <div
+          aria-label="Terminal scroll controls"
+          className="terminal-scroll-rail"
+          ref={scrollRailRef}
+        >
+          <button
+            aria-label="Scroll terminal up"
+            onClick={() => handleScrollClick(-1)}
+            onPointerDown={preserveTerminalFocus}
+            onTouchEnd={(event) => handleScrollTouchEnd(event, -1)}
+            onTouchStart={preserveTerminalFocus}
+            type="button"
+          >
+            ↑
+          </button>
+          <button
+            aria-label="Scroll terminal down"
+            onClick={() => handleScrollClick(1)}
+            onPointerDown={preserveTerminalFocus}
+            onTouchEnd={(event) => handleScrollTouchEnd(event, 1)}
+            onTouchStart={preserveTerminalFocus}
+            type="button"
+          >
+            ↓
+          </button>
+        </div>
+      </div>
       <div className="terminal-keybar" role="toolbar" aria-label="Terminal special keys">
         {terminalKeyLabels.map((key) => (
           <button
@@ -226,7 +385,10 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
             aria-pressed={key.key === "ctrl" ? isCtrlActive : undefined}
             className={key.key === "ctrl" && isCtrlActive ? "active" : undefined}
             key={key.key}
-            onClick={() => handleToolbarKey(key.key)}
+            onClick={() => handleToolbarClick(key.key)}
+            onPointerDown={preserveTerminalFocus}
+            onTouchEnd={(event) => handleToolbarTouchEnd(event, key.key)}
+            onTouchStart={preserveTerminalFocus}
             type="button"
           >
             {key.label}
@@ -235,6 +397,21 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       </div>
     </div>
   );
+}
+
+function controlLetterKey(data: string): "c" | "d" | "l" | null {
+  if (data.length !== 1) return null;
+  const key = data.toLowerCase();
+  return key === "c" || key === "d" || key === "l" ? key : null;
+}
+
+function touchScrollY(touches: TouchList): number | null {
+  if (touches.length !== 1 && touches.length !== 2) return null;
+  let total = 0;
+  for (let index = 0; index < touches.length; index += 1) {
+    total += touches[index]?.clientY ?? 0;
+  }
+  return total / touches.length;
 }
 
 function parseTerminalMessage(data: unknown): TerminalSocketMessage | null {

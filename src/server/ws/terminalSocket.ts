@@ -6,11 +6,13 @@ import { TmuxManager } from "../terminal/TmuxManager.js";
 type ClientMessage =
   | { type: "attach"; sessionId: string; cols: number; rows: number }
   | { type: "input"; data: string }
-  | { type: "resize"; cols: number; rows: number };
+  | { type: "resize"; cols: number; rows: number }
+  | { type: "scroll"; direction: "up" | "down" };
 
 export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, tmux = new TmuxManager()): void {
   server.on("connection", (socket) => {
     let terminal: pty.IPty | null = null;
+    let attachedTmuxName: string | null = null;
     const detachedTerminals = new WeakSet<pty.IPty>();
 
     const send = (message: Record<string, unknown>): void => {
@@ -24,6 +26,7 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
       detachedTerminals.add(terminal);
       terminal.kill();
       terminal = null;
+      attachedTmuxName = null;
     };
 
     socket.on("message", (raw) => {
@@ -56,6 +59,7 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
 
         try {
           terminal = tmux.attach(session.tmuxName, message.cols, message.rows);
+          attachedTmuxName = session.tmuxName;
         } catch (error) {
           db.updateSessionStatus(session.id, "exited");
           send({ type: "error", error: error instanceof Error ? error.message : "terminal attach failed" });
@@ -84,6 +88,13 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
         return;
       }
 
+      if (message.type === "scroll") {
+        if (attachedTmuxName) {
+          await tmux.scroll(attachedTmuxName, message.direction);
+        }
+        return;
+      }
+
       terminal.resize(message.cols, message.rows);
     }
   });
@@ -108,6 +119,9 @@ function parseMessage(raw: string): ClientMessage {
       cols: numberOrDefault(parsed.cols, 80),
       rows: numberOrDefault(parsed.rows, 24),
     };
+  }
+  if (parsed.type === "scroll" && (parsed.direction === "up" || parsed.direction === "down")) {
+    return { type: "scroll", direction: parsed.direction };
   }
   throw new Error("invalid terminal message");
 }

@@ -38,6 +38,14 @@ export class TmuxManager {
     return runTmux(["capture-pane", "-p", "-S", "-2000", "-t", tmuxName]);
   }
 
+  async scroll(tmuxName: string, direction: "up" | "down"): Promise<void> {
+    if (direction === "up") {
+      await runTmux(["copy-mode", "-u", "-t", tmuxName]);
+      return;
+    }
+    await runTmux(["send-keys", "-t", tmuxName, "-X", "page-down"]);
+  }
+
   async exists(tmuxName: string): Promise<boolean> {
     try {
       await runTmux(["has-session", "-t", tmuxName]);
