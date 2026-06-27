@@ -17,12 +17,13 @@ describe("project scripts", () => {
   });
 
   test.each([
-    ["run.sh", "node", "127.0.0.1", null],
-    ["dev.sh", "node", "0.0.0.0", "dev-password"]
+    ["run.sh", "node", "127.0.0.1", "7000", null],
+    ["dev.sh", "node", "0.0.0.0", "9154", "dev-password"]
   ])("%s defaults to expected host, port, caller workspace, and random workspace name", (
     scriptName,
     capturedCommand,
     expectedHost,
+    expectedPort,
     expectedAuthToken
   ) => {
     const tempRoot = mkdtempSync(join(tmpdir(), "remote-dev-script-"));
@@ -63,7 +64,7 @@ describe("project scripts", () => {
       expect(executedFrom).toBe(root);
       expect(args[0]).toBe("dist/server/cli.js");
       expect(valueAfter(args, "--host")).toBe(expectedHost);
-      expect(valueAfter(args, "--port")).toBe("7000");
+      expect(valueAfter(args, "--port")).toBe(expectedPort);
       expect(valueAfter(args, "--workspace")).toBe(callerWorkspace);
       expect(valueAfter(args, "--workspace-name")).toMatch(/^[0-9a-f]{5,8}$/);
       if (expectedAuthToken) {
