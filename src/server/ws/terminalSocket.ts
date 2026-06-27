@@ -1,5 +1,6 @@
 import type * as pty from "node-pty";
 import type { WebSocketServer } from "ws";
+import type { SessionType } from "../../shared/types.js";
 import type { MetadataDb } from "../db.js";
 import { TmuxManager } from "../terminal/TmuxManager.js";
 
@@ -13,6 +14,7 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
   server.on("connection", (socket) => {
     let terminal: pty.IPty | null = null;
     let attachedTmuxName: string | null = null;
+    let outputSanitizer = new TerminalOutputSanitizer("bash");
     const detachedTerminals = new WeakSet<pty.IPty>();
 
     const send = (message: Record<string, unknown>): void => {
@@ -27,6 +29,7 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
       terminal.kill();
       terminal = null;
       attachedTmuxName = null;
+      outputSanitizer = new TerminalOutputSanitizer("bash");
     };
 
     socket.on("message", (raw) => {
@@ -48,6 +51,7 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
         }
 
         detach();
+        outputSanitizer = new TerminalOutputSanitizer(session.type);
 
         let scrollback = "";
         try {
@@ -55,7 +59,7 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
         } catch {
           scrollback = "";
         }
-        send({ type: "scrollback", data: scrollback });
+        send({ type: "scrollback", data: stripTerminalReplay(session.type, scrollback) });
 
         try {
           terminal = tmux.attach(session.tmuxName, message.cols, message.rows);
@@ -68,7 +72,10 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
         const attachedTerminal = terminal;
         const attachedSessionId = session.id;
         db.touchSessionAttachment(session.id);
-        terminal.onData((data) => send({ type: "output", data }));
+        terminal.onData((data) => {
+          const cleanData = outputSanitizer.clean(data);
+          if (cleanData) send({ type: "output", data: cleanData });
+        });
         terminal.onExit(() => {
           if (!detachedTerminals.has(attachedTerminal)) {
             db.updateSessionStatus(attachedSessionId, "exited");
@@ -98,6 +105,40 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
       terminal.resize(message.cols, message.rows);
     }
   });
+}
+
+class TerminalOutputSanitizer {
+  private carry = "";
+
+  constructor(private readonly sessionType: SessionType) {}
+
+  clean(data: string): string {
+    if (!shouldStripAltScreen(this.sessionType)) return data;
+
+    data = this.carry + data;
+    this.carry = "";
+    const splitTail = data.match(/\x1b(?:\[\??[0-9]{0,4})?$/);
+    if (splitTail) {
+      this.carry = splitTail[0];
+      data = data.slice(0, -splitTail[0].length);
+    }
+    return stripTerminalControlSequences(data);
+  }
+}
+
+function stripTerminalReplay(sessionType: SessionType, data: string): string {
+  return shouldStripAltScreen(sessionType) ? stripTerminalControlSequences(data) : data;
+}
+
+function shouldStripAltScreen(sessionType: SessionType): boolean {
+  return sessionType === "bash" || sessionType === "codex" || sessionType === "claude";
+}
+
+function stripTerminalControlSequences(data: string): string {
+  return data
+    .replace(/\x1b\[\?(?:47|1047|1049)[hl]/g, "")
+    .replace(/\x1b\[3J/g, "")
+    .replace(/\x1b\[\?(?:1000|1001|1002|1003|1005|1006|1007)[hl]/g, "");
 }
 
 function parseMessage(raw: string): ClientMessage {
