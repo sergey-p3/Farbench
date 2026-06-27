@@ -1,4 +1,4 @@
-import { Editor } from "@monaco-editor/react";
+import { Editor, type OnMount } from "@monaco-editor/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FileResource, Workspace } from "../../shared/types.js";
 import { ApiError, api, isUnauthorized } from "../api.js";
@@ -9,6 +9,8 @@ interface FilePanelProps {
 }
 
 export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
+  const editorRef = useRef<Parameters<OnMount>[0] | null>(null);
+  const editorHostRef = useRef<HTMLDivElement | null>(null);
   const workspaceIdRef = useRef<string | null>(workspace?.id ?? null);
   const selectedPathRef = useRef<string | null>(null);
   const currentPathRef = useRef(".");
@@ -53,10 +55,52 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
     setIsSaving(false);
     setError(null);
     setRetryAction(null);
+    editorRef.current = null;
 
     if (!workspace) return;
     void loadFiles(workspace.id, ".", filesRequestRef.current);
   }, [workspace?.id]);
+
+  useEffect(() => {
+    const editorHost = editorHostRef.current;
+    if (!editorHost) return;
+
+    let lastTouchY: number | null = null;
+    const beginTouchScroll = (event: TouchEvent) => {
+      lastTouchY = touchScrollY(event.touches);
+    };
+    const moveTouchScroll = (event: TouchEvent) => {
+      if (lastTouchY === null) return;
+      const nextY = touchScrollY(event.touches);
+      if (nextY === null) return;
+      const editor = editorRef.current;
+      if (!editor) {
+        lastTouchY = nextY;
+        return;
+      }
+
+      const deltaY = lastTouchY - nextY;
+      editor.setScrollTop(editor.getScrollTop() + deltaY);
+      lastTouchY = nextY;
+      if (event.cancelable) {
+        event.preventDefault();
+      }
+    };
+    const resetTouchScroll = () => {
+      lastTouchY = null;
+    };
+
+    editorHost.addEventListener("touchstart", beginTouchScroll, { capture: true, passive: true });
+    editorHost.addEventListener("touchmove", moveTouchScroll, { capture: true, passive: false });
+    editorHost.addEventListener("touchend", resetTouchScroll, true);
+    editorHost.addEventListener("touchcancel", resetTouchScroll, true);
+    return () => {
+      editorHost.removeEventListener("touchstart", beginTouchScroll, true);
+      editorHost.removeEventListener("touchmove", moveTouchScroll, true);
+      editorHost.removeEventListener("touchend", resetTouchScroll, true);
+      editorHost.removeEventListener("touchcancel", resetTouchScroll, true);
+    };
+  }, [selectedPath]);
 
   async function loadFiles(workspaceId: string, path: string, requestId: number) {
     setIsLoading(true);
@@ -156,6 +200,10 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
     return workspaceIdRef.current === workspaceId && selectedPathRef.current === path && saveRequestRef.current === requestId;
   }
 
+  const handleEditorMount: OnMount = (editor) => {
+    editorRef.current = editor;
+  };
+
   if (!workspace) {
     return (
       <div className="tool-panel empty-tool">
@@ -215,11 +263,12 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
             {retryAction ? <button onClick={retryAction} type="button">Retry</button> : null}
           </div>
         ) : null}
-        <div className="editor-host">
+        <div className="editor-host" ref={editorHostRef}>
           {selectedPath ? (
             <Editor
               defaultLanguage={languageForPath(selectedPath)}
               onChange={(value: string | undefined) => setContent(value ?? "")}
+              onMount={handleEditorMount}
               options={{
                 automaticLayout: true,
                 fontSize: 13,
@@ -247,6 +296,15 @@ function languageForPath(path: string): string {
   if (path.endsWith(".md")) return "markdown";
   if (path.endsWith(".html")) return "html";
   return "plaintext";
+}
+
+function touchScrollY(touches: TouchList): number | null {
+  if (touches.length !== 1 && touches.length !== 2) return null;
+  let total = 0;
+  for (let index = 0; index < touches.length; index += 1) {
+    total += touches[index]?.clientY ?? 0;
+  }
+  return total / touches.length;
 }
 
 function isConflict(error: unknown): boolean {

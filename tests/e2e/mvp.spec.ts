@@ -61,7 +61,52 @@ test("owner uses mobile focused item shell and restores last active item", async
     await page.getByRole("button", { name: /src/ }).click();
     await page.getByRole("button", { name: /nested\.txt/ }).click();
     await expect(page.getByLabel("File editor").getByText("src/nested.txt")).toBeVisible();
-    await expect(page.getByText("nested content")).toBeVisible();
+    await expect(page.getByText("nested content line 001")).toBeVisible();
+    await expect(page.locator(".editor-host .monaco-scrollable-element").first()).toBeVisible();
+
+    const editorTouch = await page.evaluate(async () => {
+      const host = document.querySelector(".editor-host");
+      const scrollable = document.querySelector(".editor-host .monaco-scrollable-element");
+      if (!(host instanceof HTMLElement) || !(scrollable instanceof HTMLElement)) {
+        throw new Error("Editor scroll elements not found");
+      }
+      const hostBox = host.getBoundingClientRect();
+      const target = document.elementFromPoint(hostBox.left + hostBox.width / 2, hostBox.top + hostBox.height / 2);
+      if (!(target instanceof Element)) {
+        throw new Error("Editor touch target not found");
+      }
+      const renderedLines = () => Array.from(
+        document.querySelectorAll(".editor-host .view-line"),
+        (line) => (line.textContent ?? "").replace(/\u00a0/g, " "),
+      );
+      const before = scrollable.scrollTop;
+      const renderedBefore = renderedLines();
+      const pageScrollBefore = window.scrollY;
+      const touchInit = (clientY: number) => ({
+        bubbles: true,
+        cancelable: true,
+        touches: [new Touch({ identifier: 11, target, clientY })],
+      });
+      const start = new TouchEvent("touchstart", touchInit(650));
+      target.dispatchEvent(start);
+      const move = new TouchEvent("touchmove", touchInit(350));
+      target.dispatchEvent(move);
+      await new Promise((resolve) => requestAnimationFrame(() => requestAnimationFrame(resolve)));
+      return {
+        hostTouchAction: getComputedStyle(host).touchAction,
+        moveDefaultPrevented: move.defaultPrevented,
+        pageScrollAfter: window.scrollY,
+        pageScrollBefore,
+        renderedAfter: renderedLines(),
+        renderedBefore,
+      };
+    });
+
+    expect(editorTouch.hostTouchAction).toBe("none");
+    expect(editorTouch.moveDefaultPrevented).toBe(true);
+    expect(editorTouch.pageScrollAfter).toBe(editorTouch.pageScrollBefore);
+    expect(editorTouch.renderedBefore).toContain("nested content line 001");
+    expect(editorTouch.renderedAfter).not.toContain("nested content line 001");
 
     await page.getByRole("button", { name: "Create item" }).click();
     await page.getByRole("button", { name: "Files" }).click();
@@ -151,10 +196,21 @@ test("mobile terminal exposes special keys and stays inside a reduced viewport",
   await expect(toolbar).toBeVisible();
   const paneBox = await page.getByLabel("Focused item").boundingBox();
   const toolbarBox = await toolbar.boundingBox();
+  const viewportLock = await page.evaluate(() => ({
+    appViewportHeight: getComputedStyle(document.documentElement).getPropertyValue("--app-viewport-height").trim(),
+    clientHeight: document.documentElement.clientHeight,
+    scrollHeight: document.scrollingElement?.scrollHeight ?? 0,
+    scrollYBefore: window.scrollY,
+  }));
+  await page.evaluate(() => window.scrollTo(0, 200));
+  const scrollYAfterScrollAttempt = await page.evaluate(() => window.scrollY);
 
   expect(paneBox).not.toBeNull();
   expect(toolbarBox).not.toBeNull();
   if (!paneBox || !toolbarBox) throw new Error("Unable to measure terminal layout");
+  expect(viewportLock.appViewportHeight).toBe("520px");
+  expect(viewportLock.scrollHeight).toBe(viewportLock.clientHeight);
+  expect(scrollYAfterScrollAttempt).toBe(viewportLock.scrollYBefore);
   expect(Math.round(paneBox.y + paneBox.height)).toBeLessThanOrEqual(520);
   expect(Math.round(toolbarBox.y + toolbarBox.height)).toBeLessThanOrEqual(520);
 });
@@ -261,8 +317,8 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
 
   const toolbar = page.getByRole("toolbar", { name: "Terminal special keys" });
   await expect(toolbar.getByRole("button", { name: "Sticky Control modifier" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Scroll terminal up" })).toBeVisible();
-  await expect(page.getByRole("button", { name: "Scroll terminal down" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Scroll terminal up" })).toHaveCount(0);
+  await expect(page.getByRole("button", { name: "Scroll terminal down" })).toHaveCount(0);
 
   await page.getByLabel("Terminal input").focus();
   await toolbar.getByRole("button", { name: "Sticky Control modifier" }).click();
@@ -272,6 +328,7 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     page.locator(".terminal-host .xterm-viewport").evaluate((viewport) => viewport.scrollTop),
   ).toBeGreaterThan(0);
 
+  const terminalSurface = page.locator(".terminal-host");
   const contentTouch = await page.evaluate(() => {
     const host = document.querySelector(".terminal-host");
     const viewport = document.querySelector(".terminal-host .xterm-viewport");
@@ -302,6 +359,7 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
       moveDefaultPrevented: move.defaultPrevented,
       pageScrollAfter: window.scrollY,
       pageScrollBefore,
+      viewportOverflowY: getComputedStyle(viewport).overflowY,
       startDefaultPrevented: start.defaultPrevented,
     };
   });
@@ -321,12 +379,13 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     moveDefaultPrevented: true,
     pageScrollAfter: contentTouch.pageScrollBefore,
     pageScrollBefore: contentTouch.pageScrollBefore,
+    viewportOverflowY: "auto",
     startDefaultPrevented: false,
   });
   expect(contentTouch.after).toBeLessThan(contentTouch.before);
   expect(activeElementLabel).toBe("Terminal input");
 
-  const boundaryTouch = await page.evaluate(() => {
+  const tapDrift = await page.evaluate(() => {
     const host = document.querySelector(".terminal-host");
     const viewport = document.querySelector(".terminal-host .xterm-viewport");
     if (!(host instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
@@ -337,33 +396,30 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     if (!(target instanceof Element)) {
       throw new Error("Terminal touch target not found");
     }
-    viewport.scrollTop = 0;
+    const before = viewport.scrollTop;
     const touchInit = (clientY: number) => ({
       bubbles: true,
       cancelable: true,
-      touches: [new Touch({ identifier: 3, target, clientY })],
+      touches: [new Touch({ identifier: 2, target, clientY })],
     });
-    const start = new TouchEvent("touchstart", touchInit(500));
-    target.dispatchEvent(start);
-    const move = new TouchEvent("touchmove", touchInit(650));
+    target.dispatchEvent(new TouchEvent("touchstart", touchInit(500)));
+    const move = new TouchEvent("touchmove", touchInit(504));
     target.dispatchEvent(move);
+    target.dispatchEvent(new TouchEvent("touchend", { bubbles: true, cancelable: true, changedTouches: [] }));
     return {
-      activeElementLabel: document.activeElement?.getAttribute("aria-label"),
-      hostTouchAction: getComputedStyle(host).touchAction,
+      after: viewport.scrollTop,
+      before,
       moveDefaultPrevented: move.defaultPrevented,
-      scrollTop: viewport.scrollTop,
-      startDefaultPrevented: start.defaultPrevented,
     };
   });
-  expect(boundaryTouch).toEqual({
-    activeElementLabel: "Terminal input",
-    hostTouchAction: "none",
-    moveDefaultPrevented: true,
-    scrollTop: 0,
-    startDefaultPrevented: false,
+
+  expect(tapDrift).toEqual({
+    after: tapDrift.before,
+    before: tapDrift.before,
+    moveDefaultPrevented: false,
   });
 
-  const twoFingerTouch = await page.evaluate(() => {
+  const pointerDrag = await page.evaluate(() => {
     const host = document.querySelector(".terminal-host");
     const viewport = document.querySelector(".terminal-host .xterm-viewport");
     if (!(host instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
@@ -371,102 +427,64 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     }
     viewport.scrollTop = viewport.scrollHeight;
     const hostBox = host.getBoundingClientRect();
-    const target = document.elementFromPoint(hostBox.left + hostBox.width / 2, hostBox.top + hostBox.height / 2);
-    if (!(target instanceof Element)) {
-      throw new Error("Terminal two-finger target not found");
-    }
     const before = viewport.scrollTop;
-    const pageScrollBefore = window.scrollY;
-    const touchInit = (firstY: number, secondY: number) => ({
+    host.dispatchEvent(new PointerEvent("pointerdown", {
       bubbles: true,
+      button: 0,
       cancelable: true,
-      touches: [
-        new Touch({ identifier: 5, target, clientY: firstY }),
-        new Touch({ identifier: 6, target, clientY: secondY }),
-      ],
+      clientX: hostBox.left + hostBox.width / 2,
+      clientY: 500,
+      pointerId: 9,
+      pointerType: "touch",
+    }));
+    const move = new PointerEvent("pointermove", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: hostBox.left + hostBox.width / 2,
+      clientY: 650,
+      pointerId: 9,
+      pointerType: "touch",
     });
-    const start = new TouchEvent("touchstart", touchInit(500, 530));
-    target.dispatchEvent(start);
-    const move = new TouchEvent("touchmove", touchInit(650, 680));
-    target.dispatchEvent(move);
+    host.dispatchEvent(move);
+    host.dispatchEvent(new PointerEvent("pointerup", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: hostBox.left + hostBox.width / 2,
+      clientY: 650,
+      pointerId: 9,
+      pointerType: "touch",
+    }));
     return {
-      activeElementLabel: document.activeElement?.getAttribute("aria-label"),
       after: viewport.scrollTop,
       before,
       moveDefaultPrevented: move.defaultPrevented,
-      pageScrollAfter: window.scrollY,
-      pageScrollBefore,
-      startDefaultPrevented: start.defaultPrevented,
     };
   });
-  expect(twoFingerTouch).toEqual({
-    activeElementLabel: "Terminal input",
-    after: expect.any(Number),
-    before: twoFingerTouch.before,
-    moveDefaultPrevented: true,
-    pageScrollAfter: twoFingerTouch.pageScrollBefore,
-    pageScrollBefore: twoFingerTouch.pageScrollBefore,
-    startDefaultPrevented: false,
-  });
-  expect(twoFingerTouch.after).toBeLessThan(twoFingerTouch.before);
 
-  const railTouch = await page.evaluate(() => {
-    const rail = document.querySelector(".terminal-scroll-rail");
-    const viewport = document.querySelector(".terminal-host .xterm-viewport");
-    if (!(rail instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
-      throw new Error("Terminal scroll rail elements not found");
-    }
-    viewport.scrollTop = viewport.scrollHeight;
-    const railBox = rail.getBoundingClientRect();
-    const target = document.elementFromPoint(railBox.left + railBox.width / 2, railBox.top + railBox.height / 2);
-    if (!(target instanceof Element)) {
-      throw new Error("Terminal scroll rail target not found");
-    }
-    const before = viewport.scrollTop;
-    const pageScrollBefore = window.scrollY;
-    const touchInit = (clientY: number) => ({
-      bubbles: true,
-      cancelable: true,
-      touches: [new Touch({ identifier: 4, target, clientY })],
-    });
-    const start = new TouchEvent("touchstart", touchInit(500));
-    target.dispatchEvent(start);
-    const move = new TouchEvent("touchmove", touchInit(650));
-    target.dispatchEvent(move);
-    return {
-      activeElementLabel: document.activeElement?.getAttribute("aria-label"),
-      after: viewport.scrollTop,
-      before,
-      moveDefaultPrevented: move.defaultPrevented,
-      pageScrollAfter: window.scrollY,
-      pageScrollBefore,
-      startDefaultPrevented: start.defaultPrevented,
-    };
-  });
-  expect(railTouch).toEqual({
-    activeElementLabel: "Terminal input",
-    after: expect.any(Number),
-    before: railTouch.before,
-    moveDefaultPrevented: true,
-    pageScrollAfter: railTouch.pageScrollBefore,
-    pageScrollBefore: railTouch.pageScrollBefore,
-    startDefaultPrevented: false,
-  });
-  expect(railTouch.after).toBeLessThan(railTouch.before);
+  expect(pointerDrag.after).toBeLessThan(pointerDrag.before);
+  expect(pointerDrag.moveDefaultPrevented).toBe(true);
 
-  await page.getByRole("button", { name: "Scroll terminal up" }).click();
-  await page.getByRole("button", { name: "Scroll terminal down" }).click();
-  const activeElementLabelAfterScrollButtons = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
-  const sentMessagesAfterScrollButtons = await page.evaluate(() => {
-    const messages = Reflect.get(window, "__terminalSentMessages") as string[];
-    return messages.map((message) => JSON.parse(message) as { type: string; data?: string; direction?: string });
-  });
+  await terminalSurface.click({ button: "right", position: { x: 60, y: 60 } });
+  const menu = page.getByRole("menu", { name: "Terminal actions" });
+  await expect(menu.getByRole("menuitem", { name: "Copy" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Paste" })).toBeVisible();
+  await expect(menu.getByRole("menuitem", { name: "Select all" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await expect(menu).toHaveCount(0);
 
-  expect(sentMessagesAfterScrollButtons.filter((message) => message.type === "scroll")).toEqual([
-    { type: "scroll", direction: "up" },
-    { type: "scroll", direction: "down" },
-  ]);
-  expect(activeElementLabelAfterScrollButtons).toBe("Terminal input");
+  await terminalSurface.dispatchEvent("pointerdown", {
+    button: 0,
+    clientX: 80,
+    clientY: 220,
+    pointerId: 7,
+    pointerType: "touch",
+  });
+  await page.waitForTimeout(650);
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toBeVisible();
+  await page.getByRole("menuitem", { name: "Select all" }).click();
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toHaveCount(0);
 
   await toolbar.getByRole("button", { name: "Sticky Control modifier" }).click();
   await page.getByLabel("Terminal input").focus();
