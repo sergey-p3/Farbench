@@ -11,7 +11,7 @@ random_workspace_name() {
 }
 
 HOST="${HOST:-0.0.0.0}"
-PORT="${PORT:-7000}"
+PORT="${PORT:-9154}"
 WORKSPACE="${WORKSPACE:-$CALLER_PWD}"
 AUTH_TOKEN="${AUTH_TOKEN:-dev-password}"
 DATA_DIR="${DATA_DIR:-}"
