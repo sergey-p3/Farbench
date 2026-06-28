@@ -3,7 +3,10 @@ import { useEffect, useRef, useState } from "react";
 import type { GitFileDiffResponse } from "../../shared/types.js";
 import {
   copyPayloadForGitLine,
+  copyStatusLabel,
   defaultGitDiffMode,
+  validSelectedNewLine,
+  type GitDiffCopyStatus,
   type GitDiffMode,
 } from "../gitDiffView.js";
 
@@ -14,38 +17,68 @@ interface GitDiffViewerProps {
 
 export function GitDiffViewer({ diff, isLoading }: GitDiffViewerProps) {
   const hostRef = useRef<HTMLDivElement | null>(null);
-  const cursorListenerRef = useRef<{ dispose: () => void } | null>(null);
+  const editorListenersRef = useRef<Array<{ dispose: () => void }>>([]);
   const [mode, setMode] = useState<GitDiffMode>(() => defaultGitDiffMode(window.innerWidth));
   const [selectedNewLine, setSelectedNewLine] = useState<number | null>(null);
-  const [copied, setCopied] = useState(false);
+  const [copyStatus, setCopyStatus] = useState<GitDiffCopyStatus>("idle");
 
   useEffect(() => {
-    cursorListenerRef.current?.dispose();
-    cursorListenerRef.current = null;
+    disposeEditorListeners();
     const width = hostRef.current?.clientWidth ?? window.innerWidth;
     setMode(defaultGitDiffMode(width));
     setSelectedNewLine(null);
-    setCopied(false);
+    setCopyStatus("idle");
   }, [diff?.path]);
 
   useEffect(() => {
-    return () => cursorListenerRef.current?.dispose();
+    return disposeEditorListeners;
   }, []);
 
   const handleMount: DiffOnMount = (editor) => {
-    cursorListenerRef.current?.dispose();
+    disposeEditorListeners();
+    const originalEditor = editor.getOriginalEditor();
     const modifiedEditor = editor.getModifiedEditor();
-    setSelectedNewLine(modifiedEditor.getPosition()?.lineNumber ?? null);
-    cursorListenerRef.current = modifiedEditor.onDidChangeCursorPosition((event) => {
-      setSelectedNewLine(event.position.lineNumber);
-      setCopied(false);
-    });
+    const updateSelectedLine = (lineNumber: number | null, modifiedFocused: boolean) => {
+      setSelectedNewLine(validSelectedNewLine({
+        currentContent: diff?.current ?? "",
+        lineNumber,
+        modifiedLineCount: modifiedEditor.getModel()?.getLineCount() ?? 0,
+        modifiedFocused,
+      }));
+      setCopyStatus("idle");
+    };
+
+    editorListenersRef.current = [
+      originalEditor.onDidFocusEditorWidget(() => updateSelectedLine(null, false)),
+      modifiedEditor.onDidFocusEditorWidget(() => {
+        updateSelectedLine(modifiedEditor.getPosition()?.lineNumber ?? null, true);
+      }),
+      modifiedEditor.onDidChangeCursorPosition((event) => {
+        updateSelectedLine(event.position.lineNumber, modifiedEditor.hasTextFocus());
+      }),
+    ];
   };
 
   async function copyLocation() {
     if (!diff) return;
-    await navigator.clipboard.writeText(copyPayloadForGitLine(diff.path, selectedNewLine));
-    setCopied(true);
+    try {
+      await navigator.clipboard.writeText(copyPayloadForGitLine(diff.path, selectedNewLine));
+      setCopyStatus("copied");
+    } catch {
+      setCopyStatus("failed");
+    }
+  }
+
+  function selectMode(nextMode: GitDiffMode) {
+    setMode(nextMode);
+    setCopyStatus("idle");
+  }
+
+  function disposeEditorListeners() {
+    for (const listener of editorListenersRef.current) {
+      listener.dispose();
+    }
+    editorListenersRef.current = [];
   }
 
   if (isLoading) {
@@ -79,21 +112,21 @@ export function GitDiffViewer({ diff, isLoading }: GitDiffViewerProps) {
         <div className="segmented-control" role="group" aria-label="Diff view mode">
           <button
             aria-pressed={mode === "side-by-side"}
-            onClick={() => setMode("side-by-side")}
+            onClick={() => selectMode("side-by-side")}
             type="button"
           >
             Side by side
           </button>
           <button
             aria-pressed={mode === "line-by-line"}
-            onClick={() => setMode("line-by-line")}
+            onClick={() => selectMode("line-by-line")}
             type="button"
           >
             Line by line
           </button>
         </div>
         <button className="secondary-button" onClick={() => void copyLocation()} type="button">
-          {copied ? "Copied" : "Copy location"}
+          {copyStatusLabel(copyStatus)}
         </button>
       </div>
       <div className="diff-editor-host">
