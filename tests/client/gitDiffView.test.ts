@@ -161,4 +161,37 @@ describe("git diff view helpers", () => {
       document: documentRef,
     })).resolves.toBe(true);
   });
+
+  test("uses a copy event fallback before creating a textarea", async () => {
+    let copyHandler: ((event: ClipboardEvent) => void) | null = null;
+    const clipboardData = { setData: vi.fn() };
+    const copyEvent = {
+      clipboardData,
+      preventDefault: vi.fn(),
+    } as unknown as ClipboardEvent;
+    const documentRef = {
+      addEventListener: vi.fn((_type: string, handler: EventListenerOrEventListenerObject) => {
+        copyHandler = typeof handler === "function" ? handler as (event: ClipboardEvent) => void : null;
+      }),
+      body: {
+        appendChild: vi.fn(),
+        removeChild: vi.fn(),
+      },
+      createElement: vi.fn(),
+      execCommand: vi.fn(() => {
+        copyHandler?.(copyEvent);
+        return true;
+      }),
+      removeEventListener: vi.fn(),
+    } as unknown as Document;
+
+    await expect(copyTextToClipboard("terminal output", {
+      clipboard: { writeText: () => Promise.reject(new Error("denied")) },
+      document: documentRef,
+    })).resolves.toBe(true);
+
+    expect(clipboardData.setData).toHaveBeenCalledWith("text/plain", "terminal output");
+    expect(copyEvent.preventDefault).toHaveBeenCalled();
+    expect(documentRef.createElement).not.toHaveBeenCalled();
+  });
 });
