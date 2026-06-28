@@ -170,13 +170,13 @@ button:disabled {
 }
 
 .top-menu-floating .shell-top-bar {
-  left: 8px;
   position: absolute;
+  right: 8px;
   top: 8px;
 }
 
 .top-menu-floating .shell-top-bar.top-menu-expanded {
-  right: 8px;
+  left: 8px;
 }
 
 .top-menu-pinned .shell-top-bar {
@@ -589,11 +589,11 @@ button.secondary-button {
   background: #0d141b;
   border-top: 1px solid #22313f;
   display: flex;
-  gap: 6px;
+  gap: 4px;
   grid-row: 3;
-  min-height: 44px;
+  min-height: 34px;
   overflow-x: auto;
-  padding: 6px 8px;
+  padding: 3px 6px;
 }
 
 .terminal-keybar button {
@@ -602,11 +602,11 @@ button.secondary-button {
   border-radius: 6px;
   color: #d7dee8;
   flex: 0 0 auto;
-  font-size: 0.82rem;
+  font-size: 0.76rem;
   font-weight: 700;
-  min-height: 32px;
-  min-width: 42px;
-  padding: 6px 9px;
+  min-height: 27px;
+  min-width: 34px;
+  padding: 4px 7px;
 }
 
 .terminal-keybar button.active,

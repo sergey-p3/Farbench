@@ -189,10 +189,15 @@ test("top menu collapses into an overlay and can be pinned into layout", async (
   if (!paneBoxCollapsed) throw new Error("Unable to measure focused item");
   expect(Math.round(paneBoxCollapsed.y)).toBe(0);
 
-  await expect(page.getByRole("button", { name: "Show top menu" })).toBeVisible();
+  const collapsedMenuButton = page.getByRole("button", { name: "Show top menu" });
+  await expect(collapsedMenuButton).toBeVisible();
+  const collapsedMenuButtonBox = await collapsedMenuButton.boundingBox();
+  expect(collapsedMenuButtonBox).not.toBeNull();
+  if (!collapsedMenuButtonBox) throw new Error("Unable to measure collapsed menu button");
+  expect(Math.round(collapsedMenuButtonBox.x + collapsedMenuButtonBox.width)).toBeGreaterThanOrEqual(374);
   await expect(page.getByRole("button", { name: "Pin top menu" })).toHaveCount(0);
 
-  await page.getByRole("button", { name: "Show top menu" }).click();
+  await collapsedMenuButton.click();
   await expect(page.getByRole("button", { name: "Hide top menu" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Pin top menu" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create item" })).toBeVisible();
@@ -275,6 +280,7 @@ test("mobile terminal exposes special keys and stays inside a reduced viewport",
   expect(paneBox).not.toBeNull();
   expect(toolbarBox).not.toBeNull();
   if (!paneBox || !toolbarBox) throw new Error("Unable to measure terminal layout");
+  expect(Math.round(toolbarBox.height)).toBeLessThanOrEqual(36);
   expect(viewportLock.appViewportHeight).toBe("520px");
   expect(viewportLock.scrollHeight).toBe(viewportLock.clientHeight);
   expect(scrollYAfterScrollAttempt).toBe(viewportLock.scrollYBefore);
