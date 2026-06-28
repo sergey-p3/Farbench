@@ -86,6 +86,17 @@ export interface GitStatusResponse {
   changes: GitChange[];
 }
 
+export type GitFileDiffKind = "text" | "binary" | "too-large" | "unavailable";
+
+export interface GitFileDiffResponse {
+  path: string;
+  kind: GitFileDiffKind;
+  original: string;
+  current: string;
+  patch: string;
+  message: string | null;
+}
+
 export interface PortPreview {
   id: string;
   workspaceId: string;
