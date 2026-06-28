@@ -1,6 +1,7 @@
 import type {
   FileReadResponse,
   FileResource,
+  GitFileDiffResponse,
   GitStatusResponse,
   PortPreview,
   Session,
@@ -136,6 +137,10 @@ export const api = {
 
   async gitDiff(workspaceId: string, path: string): Promise<string> {
     return request<string>(`/api/workspaces/${encodeURIComponent(workspaceId)}/git/diff${query({ path })}`);
+  },
+
+  async gitFileDiff(workspaceId: string, path: string): Promise<GitFileDiffResponse> {
+    return request<GitFileDiffResponse>(`/api/workspaces/${encodeURIComponent(workspaceId)}/git/file-diff${query({ path })}`);
   },
 
   async createPreview(workspaceId: string, port: number): Promise<PortPreview> {

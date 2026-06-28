@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
-import type { GitChange, Workspace } from "../../shared/types.js";
+import type { GitChange, GitFileDiffResponse, Workspace } from "../../shared/types.js";
 import { api, isUnauthorized } from "../api.js";
+import { GitDiffViewer } from "./GitDiffViewer.js";
 
 interface GitPanelProps {
   workspace: Workspace | null;
@@ -14,7 +15,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
   const diffRequestRef = useRef(0);
   const [changes, setChanges] = useState<GitChange[]>([]);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
-  const [diff, setDiff] = useState("");
+  const [diff, setDiff] = useState<GitFileDiffResponse | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
   const [error, setError] = useState<string | null>(null);
@@ -29,7 +30,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
     diffRequestRef.current += 1;
     setChanges([]);
     setSelectedPath(null);
-    setDiff("");
+    setDiff(null);
     setIsLoading(false);
     setIsLoadingDiff(false);
     setError(null);
@@ -48,7 +49,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
       const currentSelectedPath = selectedPathRef.current;
       if (currentSelectedPath && !status.changes.some((change) => change.path === currentSelectedPath)) {
         setSelectedPath(null);
-        setDiff("");
+        setDiff(null);
         diffRequestRef.current += 1;
       }
     } catch (statusError) {
@@ -67,11 +68,11 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
     const requestId = ++diffRequestRef.current;
     setSelectedPath(change.path);
     selectedPathRef.current = change.path;
-    setDiff("");
+    setDiff(null);
     setIsLoadingDiff(true);
     setError(null);
     try {
-      const nextDiff = await api.gitDiff(workspaceId, path);
+      const nextDiff = await api.gitFileDiff(workspaceId, path);
       if (!isCurrentDiffRequest(workspaceId, path, requestId)) return;
       setDiff(nextDiff);
     } catch (diffError) {
@@ -132,7 +133,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
           <strong>{selectedPath ?? "No change selected"}</strong>
         </div>
         {error ? <p className="panel-error" role="alert">{error}</p> : null}
-        <pre className="diff-output">{isLoadingDiff ? "Loading diff..." : diff || "Select a changed file to view its diff."}</pre>
+        <GitDiffViewer diff={diff} isLoading={isLoadingDiff} />
       </section>
     </div>
   );
