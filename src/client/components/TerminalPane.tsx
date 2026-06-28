@@ -16,7 +16,7 @@ import {
   type TerminalBufferCell,
   type TerminalSelectionHandleLayout,
 } from "../terminalSelection.js";
-import { terminalKeyboardChromeInset } from "../terminalViewport.js";
+import { terminalKeyboardChromeInset, terminalViewportFitDelayMs } from "../terminalViewport.js";
 
 interface TerminalPaneProps {
   sessionId: string | null;
@@ -397,6 +397,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     const fitAddon = new FitAddon();
     const socket = new WebSocket(terminalSocketUrl());
     let authProbeStarted = false;
+    let deferredFitAndResizeTimer: number | null = null;
 
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
@@ -422,18 +423,39 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       sendResize();
     };
 
+    const clearDeferredFitAndResize = () => {
+      if (deferredFitAndResizeTimer === null) return;
+      window.clearTimeout(deferredFitAndResizeTimer);
+      deferredFitAndResizeTimer = null;
+    };
+
     const syncVisualViewport = () => {
       const viewport = window.visualViewport;
       if (rootRef.current && viewport) {
-        rootRef.current.style.setProperty("--terminal-visual-height", `${viewport.height}px`);
-        rootRef.current.style.setProperty("--terminal-keyboard-chrome-inset", `${terminalKeyboardChromeInset({
+        const metrics = {
           innerHeight: window.innerHeight,
           maxTouchPoints: navigator.maxTouchPoints,
           userAgent: navigator.userAgent,
           visualViewportHeight: viewport.height,
           visualViewportOffsetTop: viewport.offsetTop,
-        })}px`);
+        };
+        rootRef.current.style.setProperty("--terminal-visual-height", `${viewport.height}px`);
+        rootRef.current.style.setProperty("--terminal-keyboard-chrome-inset", `${terminalKeyboardChromeInset(metrics)}px`);
+
+        const fitDelayMs = terminalViewportFitDelayMs({
+          isTerminalInputFocused: document.activeElement === terminal.textarea,
+          metrics,
+        });
+        if (fitDelayMs > 0) {
+          clearDeferredFitAndResize();
+          deferredFitAndResizeTimer = window.setTimeout(() => {
+            deferredFitAndResizeTimer = null;
+            fitAndResize();
+          }, fitDelayMs);
+          return;
+        }
       }
+      clearDeferredFitAndResize();
       fitAndResize();
     };
 
@@ -623,6 +645,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       window.removeEventListener("resize", syncVisualViewport);
       window.visualViewport?.removeEventListener("resize", syncVisualViewport);
       window.visualViewport?.removeEventListener("scroll", syncVisualViewport);
+      clearDeferredFitAndResize();
       resizeObserver.disconnect();
       touchMomentum.cancel();
       pointerMomentum.cancel();
