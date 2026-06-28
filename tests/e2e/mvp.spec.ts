@@ -300,6 +300,7 @@ test("mobile terminal exposes special keys and stays inside a reduced viewport",
 test("mobile terminal special keys send toolbar input while preserving keyboard textarea focus", async ({ page }) => {
   let terminalSession: Session | null = null;
   const deletedSessionIds: string[] = [];
+  await page.context().grantPermissions(["clipboard-read", "clipboard-write"]);
 
   await page.addInitScript(() => {
     const sentMessages: string[] = [];
@@ -655,11 +656,75 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   expect(pointerDrag.after).toBeLessThan(pointerDrag.before);
   expect(pointerDrag.moveDefaultPrevented).toBe(true);
 
-  await terminalSurface.click({ button: "right", position: { x: 60, y: 60 } });
+  await terminalSurface.click({ button: "right", position: { x: 20, y: 60 } });
   const menu = page.getByRole("menu", { name: "Terminal actions" });
+  await expect(menu.getByRole("menuitem", { name: "Select", exact: true })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "Copy" })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "Paste" })).toBeVisible();
   await expect(menu.getByRole("menuitem", { name: "Select all" })).toBeVisible();
+  await menu.getByRole("menuitem", { name: "Select", exact: true }).click();
+  await expect.poll(() => page.locator(".terminal-host .xterm-selection div").count()).toBeGreaterThan(0);
+  const startHandle = page.getByRole("slider", { name: "Expand terminal selection start" });
+  const endHandle = page.getByRole("slider", { name: "Expand terminal selection end" });
+  await expect(startHandle).toBeVisible();
+  await expect(endHandle).toBeVisible();
+  const endHandleBox = await endHandle.boundingBox();
+  expect(endHandleBox).not.toBeNull();
+  if (!endHandleBox) throw new Error("Terminal selection end handle not found");
+  await page.mouse.move(endHandleBox.x + endHandleBox.width / 2, endHandleBox.y + endHandleBox.height / 2);
+  await page.mouse.down();
+  await page.mouse.move(endHandleBox.x + endHandleBox.width / 2 + 120, endHandleBox.y + endHandleBox.height / 2);
+  await page.mouse.up();
+  const expandedEndHandleBox = await endHandle.boundingBox();
+  expect(expandedEndHandleBox).not.toBeNull();
+  if (!expandedEndHandleBox) throw new Error("Expanded terminal selection end handle not found");
+  expect(expandedEndHandleBox.height).toBeGreaterThan(0);
+  await terminalSurface.click({ button: "right", position: { x: 20, y: 60 } });
+  await menu.getByRole("menuitem", { name: "Copy" }).click();
+  await expect.poll(async () => {
+    const text = await page.evaluate(() => navigator.clipboard.readText());
+    return text.includes("line") && text.length > "line".length;
+  }).toBe(true);
+  expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).not.toBe("Terminal input");
+
+  const handleTopBeforeScroll = await endHandle.evaluate((handle) => handle.getBoundingClientRect().top);
+  await page.locator(".terminal-host .xterm-viewport").evaluate((viewport) => {
+    viewport.scrollTop += 45;
+    viewport.dispatchEvent(new Event("scroll", { bubbles: true }));
+  });
+  await expect.poll(() => endHandle.evaluate((handle) => handle.getBoundingClientRect().top)).not.toBe(handleTopBeforeScroll);
+
+  const longPressTarget = await terminalSurface.boundingBox();
+  expect(longPressTarget).not.toBeNull();
+  if (!longPressTarget) throw new Error("Terminal surface not found for long press");
+  await terminalSurface.dispatchEvent("pointerdown", {
+    bubbles: true,
+    button: 0,
+    cancelable: true,
+    clientX: longPressTarget.x + 24,
+    clientY: longPressTarget.y + 68,
+    pointerId: 71,
+    pointerType: "touch",
+  });
+  await page.waitForTimeout(650);
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toBeVisible();
+  await terminalSurface.dispatchEvent("pointerup", {
+    bubbles: true,
+    button: 0,
+    cancelable: true,
+    clientX: longPressTarget.x + 24,
+    clientY: longPressTarget.y + 68,
+    pointerId: 71,
+    pointerType: "touch",
+  });
+  expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).not.toBe("Terminal input");
+  await page.getByRole("menuitem", { name: "Copy" }).click();
+  await expect.poll(async () => {
+    const text = await page.evaluate(() => navigator.clipboard.readText());
+    return text.includes("line") && text.length > "line".length;
+  }).toBe(true);
+
+  await terminalSurface.click({ button: "right", position: { x: 20, y: 60 } });
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
 

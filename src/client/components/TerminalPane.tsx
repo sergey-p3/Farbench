@@ -6,6 +6,14 @@ import { createMomentumScrollGesture } from "../scrollMomentum.js";
 import { createTerminalGestureOwner } from "../terminalGestureOwner.js";
 import { scrollTerminalViewportByPixels } from "../terminalPixelScroller.js";
 import { terminalControlSequence, terminalKeyLabels, type TerminalToolbarKey } from "../terminalKeys.js";
+import {
+  terminalCellFromPointer,
+  terminalHandleLayoutFromSelection,
+  terminalSelectArgsFromEndpoints,
+  terminalWordRangeAtCell,
+  type TerminalBufferCell,
+  type TerminalSelectionHandleLayout,
+} from "../terminalSelection.js";
 import { terminalKeyboardChromeInset } from "../terminalViewport.js";
 
 interface TerminalPaneProps {
@@ -21,9 +29,13 @@ type TerminalSocketMessage =
   | { type: "exit" };
 
 interface TerminalActionMenuState {
+  pointerX: number;
+  pointerY: number;
   x: number;
   y: number;
 }
+
+type TerminalSelectionHandleKind = "start" | "end";
 
 const LONG_PRESS_MS = 550;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
@@ -36,6 +48,7 @@ export function terminalSocketUrl(locationLike: Pick<Location, "protocol" | "hos
 
 export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: TerminalPaneProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
+  const stageRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
@@ -46,10 +59,12 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const explicitTapStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const selectionDragRef = useRef<{ anchor: TerminalBufferCell; handle: TerminalSelectionHandleKind; pointerId: number } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [isCtrlActive, setIsCtrlActive] = useState(false);
   const [actionMenu, setActionMenu] = useState<TerminalActionMenuState | null>(null);
+  const [selectionHandles, setSelectionHandles] = useState<TerminalSelectionHandleLayout | null>(null);
 
   const updateCtrlActive = useCallback((next: boolean | ((current: boolean) => boolean)) => {
     const nextValue = typeof next === "function" ? next(isCtrlActiveRef.current) : next;
@@ -101,12 +116,82 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     longPressStartRef.current = null;
   }, []);
 
+  const terminalBufferCellFromPointer = useCallback((clientX: number, clientY: number): TerminalBufferCell | null => {
+    const terminal = terminalRef.current;
+    const host = containerRef.current;
+    const screen = host?.querySelector(".xterm-screen");
+    if (!terminal || !(screen instanceof HTMLElement)) return null;
+
+    const screenRect = screen.getBoundingClientRect();
+    const cell = terminalCellFromPointer({
+      cellHeight: screenRect.height / terminal.rows,
+      cellWidth: screenRect.width / terminal.cols,
+      clientX,
+      clientY,
+      cols: terminal.cols,
+      hostRect: screenRect,
+      rows: terminal.rows,
+    });
+    if (!cell) return null;
+    return { column: cell.column, row: terminal.buffer.active.viewportY + cell.row };
+  }, []);
+
+  const updateTerminalSelectionHandles = useCallback(() => {
+    const terminal = terminalRef.current;
+    const stage = stageRef.current;
+    const screen = containerRef.current?.querySelector(".xterm-screen");
+    const selection = terminal?.getSelectionPosition();
+    if (!terminal || !stage || !(screen instanceof HTMLElement) || !selection) {
+      setSelectionHandles(null);
+      return;
+    }
+
+    const stageRect = stage.getBoundingClientRect();
+    const screenRect = screen.getBoundingClientRect();
+    setSelectionHandles(terminalHandleLayoutFromSelection({
+      cellHeight: screenRect.height / terminal.rows,
+      cellWidth: screenRect.width / terminal.cols,
+      screenOffsetLeft: screenRect.left - stageRect.left,
+      screenOffsetTop: screenRect.top - stageRect.top,
+      selection: {
+        start: { column: selection.start.x, row: selection.start.y },
+        end: { column: selection.end.x, row: selection.end.y },
+      },
+      viewportY: terminal.buffer.active.viewportY,
+      visibleRows: terminal.rows,
+    }));
+  }, []);
+
+  const selectTerminalWordAtPointer = useCallback((clientX: number, clientY: number): boolean => {
+    const terminal = terminalRef.current;
+    const cell = terminalBufferCellFromPointer(clientX, clientY);
+    if (!terminal || !cell) {
+      terminal?.clearSelection();
+      return false;
+    }
+
+    const line = terminal.buffer.active.getLine(cell.row)?.translateToString(true) ?? "";
+    const range = terminalWordRangeAtCell(line, cell.column);
+    if (!range) {
+      terminal.clearSelection();
+      return false;
+    }
+
+    terminal.select(range.start, cell.row, range.length);
+    updateTerminalSelectionHandles();
+    return true;
+  }, [terminalBufferCellFromPointer, updateTerminalSelectionHandles]);
+
   const openTerminalActionMenu = useCallback((x: number, y: number) => {
     clearLongPress();
     const nextX = Math.max(8, Math.min(x, window.innerWidth - TERMINAL_ACTION_MENU_WIDTH_PX - 8));
     const nextY = Math.max(8, Math.min(y, window.innerHeight - 160));
-    setActionMenu({ x: nextX, y: nextY });
-  }, [clearLongPress]);
+    const terminal = terminalRef.current;
+    if (!terminal?.getSelection()) {
+      selectTerminalWordAtPointer(x, y);
+    }
+    setActionMenu({ pointerX: x, pointerY: y, x: nextX, y: nextY });
+  }, [clearLongPress, selectTerminalWordAtPointer]);
 
   const handleTerminalContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
@@ -122,6 +207,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     longPressStartRef.current = start;
     longPressTimerRef.current = window.setTimeout(() => {
       if (longPressStartRef.current?.pointerId === start.pointerId) {
+        explicitTapStartRef.current = null;
         openTerminalActionMenu(start.x, start.y);
       }
     }, LONG_PRESS_MS);
@@ -159,7 +245,6 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const copyTerminalSelection = useCallback(async () => {
     const selection = terminalRef.current?.getSelection() ?? "";
     setActionMenu(null);
-    terminalRef.current?.focus();
     if (!selection) return;
 
     try {
@@ -168,6 +253,12 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       setStatus("Unable to copy terminal selection.");
     }
   }, []);
+
+  const selectTerminalWordFromMenu = useCallback(() => {
+    const pointer = actionMenu;
+    setActionMenu(null);
+    if (pointer) selectTerminalWordAtPointer(pointer.pointerX, pointer.pointerY);
+  }, [actionMenu, selectTerminalWordAtPointer]);
 
   const pasteFromClipboard = useCallback(async () => {
     setActionMenu(null);
@@ -183,9 +274,65 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
 
   const selectAllTerminalText = useCallback(() => {
     terminalRef.current?.selectAll();
-    terminalRef.current?.focus();
     setActionMenu(null);
   }, []);
+
+  const applySelectionHandleDrag = useCallback((clientX: number, clientY: number, pointerId: number): boolean => {
+    const drag = selectionDragRef.current;
+    const terminal = terminalRef.current;
+    if (!drag || drag.pointerId !== pointerId || !terminal) return false;
+
+    const cell = terminalBufferCellFromPointer(clientX, clientY);
+    if (!cell) return false;
+
+    const movingCell = drag.handle === "end"
+      ? { column: Math.min(cell.column + 1, terminal.cols), row: cell.row }
+      : cell;
+    const args = terminalSelectArgsFromEndpoints({
+      cols: terminal.cols,
+      end: drag.handle === "end" ? movingCell : drag.anchor,
+      start: drag.handle === "start" ? movingCell : drag.anchor,
+    });
+    if (!args) return false;
+    terminal.select(args.column, args.row, args.length);
+    updateTerminalSelectionHandles();
+    return true;
+  }, [terminalBufferCellFromPointer, updateTerminalSelectionHandles]);
+
+  const beginSelectionHandleDrag = useCallback((event: React.PointerEvent<HTMLButtonElement>, handle: TerminalSelectionHandleKind) => {
+    const terminal = terminalRef.current;
+    const selection = terminal?.getSelectionPosition();
+    if (!selection) return;
+
+    event.preventDefault();
+    event.stopPropagation();
+    selectionDragRef.current = {
+      anchor: handle === "start"
+        ? { column: selection.end.x, row: selection.end.y }
+        : { column: selection.start.x, row: selection.start.y },
+      handle,
+      pointerId: event.pointerId,
+    };
+
+    const pointerId = event.pointerId;
+    const handlePointerMove = (moveEvent: PointerEvent) => {
+      if (moveEvent.pointerId !== pointerId) return;
+      moveEvent.preventDefault();
+      applySelectionHandleDrag(moveEvent.clientX, moveEvent.clientY, pointerId);
+    };
+    const handlePointerEnd = (endEvent: PointerEvent) => {
+      if (endEvent.pointerId !== pointerId) return;
+      endEvent.preventDefault();
+      window.removeEventListener("pointermove", handlePointerMove, true);
+      window.removeEventListener("pointerup", handlePointerEnd, true);
+      window.removeEventListener("pointercancel", handlePointerEnd, true);
+      selectionDragRef.current = null;
+    };
+
+    window.addEventListener("pointermove", handlePointerMove, { capture: true, passive: false });
+    window.addEventListener("pointerup", handlePointerEnd, { capture: true, passive: false });
+    window.addEventListener("pointercancel", handlePointerEnd, { capture: true, passive: false });
+  }, [applySelectionHandleDrag]);
 
   useEffect(() => {
     if (!actionMenu) return;
@@ -368,6 +515,10 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     touchScrollTarget.addEventListener("pointermove", movePointerScroll, { capture: true });
     touchScrollTarget.addEventListener("pointerup", resetPointerScroll, true);
     touchScrollTarget.addEventListener("pointercancel", cancelPointerScroll, true);
+    const xtermViewport = touchScrollTarget.querySelector(".xterm-viewport");
+    if (xtermViewport instanceof HTMLElement) {
+      xtermViewport.addEventListener("scroll", updateTerminalSelectionHandles);
+    }
 
     const dataDisposable = terminal.onData((data) => {
       if (isCtrlActiveRef.current) {
@@ -385,6 +536,8 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       }
       sendTerminalInput(data);
     });
+    const selectionDisposable = terminal.onSelectionChange(updateTerminalSelectionHandles);
+    const scrollDisposable = terminal.onScroll(updateTerminalSelectionHandles);
 
     socket.addEventListener("open", () => {
       if (!isCurrentSocket()) return;
@@ -469,15 +622,21 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       touchScrollTarget.removeEventListener("pointermove", movePointerScroll, true);
       touchScrollTarget.removeEventListener("pointerup", resetPointerScroll, true);
       touchScrollTarget.removeEventListener("pointercancel", cancelPointerScroll, true);
+      if (xtermViewport instanceof HTMLElement) {
+        xtermViewport.removeEventListener("scroll", updateTerminalSelectionHandles);
+      }
       dataDisposable.dispose();
+      selectionDisposable.dispose();
+      scrollDisposable.dispose();
       clearLongPress();
+      setSelectionHandles(null);
       if (socketRef.current === socket) socketRef.current = null;
       if (terminalRef.current === terminal) terminalRef.current = null;
       if (fitAddonRef.current === fitAddon) fitAddonRef.current = null;
       socket.close();
       terminal.dispose();
     };
-  }, [clearLongPress, onUnauthorized, retryNonce, sendTerminalInput, sessionId, updateCtrlActive]);
+  }, [clearLongPress, onUnauthorized, retryNonce, sendTerminalInput, sessionId, updateCtrlActive, updateTerminalSelectionHandles]);
 
   if (!sessionId) {
     return (
@@ -501,6 +660,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       ) : null}
       <div
         className="terminal-stage"
+        ref={stageRef}
         onContextMenu={handleTerminalContextMenu}
         onPointerCancel={cancelTerminalPointerGesture}
         onPointerDown={handleTerminalPointerDown}
@@ -509,6 +669,36 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
         onPointerUp={handleTerminalPointerEnd}
       >
         <div className="terminal-host" ref={containerRef} />
+        {selectionHandles ? (
+          <div className="terminal-selection-handles" aria-hidden={false}>
+            <button
+              aria-label="Expand terminal selection start"
+              aria-orientation="vertical"
+              aria-valuemax={terminalRef.current?.buffer.active.length ?? 0}
+              aria-valuemin={0}
+              aria-valuenow={0}
+              className="terminal-selection-handle terminal-selection-handle-start"
+              onPointerDown={(event) => beginSelectionHandleDrag(event, "start")}
+              role="slider"
+              style={{ left: selectionHandles.start.left, top: selectionHandles.start.top }}
+              title="Expand selection start"
+              type="button"
+            />
+            <button
+              aria-label="Expand terminal selection end"
+              aria-orientation="vertical"
+              aria-valuemax={terminalRef.current?.buffer.active.length ?? 0}
+              aria-valuemin={0}
+              aria-valuenow={0}
+              className="terminal-selection-handle terminal-selection-handle-end"
+              onPointerDown={(event) => beginSelectionHandleDrag(event, "end")}
+              role="slider"
+              style={{ left: selectionHandles.end.left, top: selectionHandles.end.top }}
+              title="Expand selection end"
+              type="button"
+            />
+          </div>
+        ) : null}
       </div>
       {actionMenu ? (
         <div
@@ -518,6 +708,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
           role="menu"
           style={{ left: actionMenu.x, top: actionMenu.y }}
         >
+          <button onClick={selectTerminalWordFromMenu} role="menuitem" type="button">Select</button>
           <button onClick={() => void copyTerminalSelection()} role="menuitem" type="button">Copy</button>
           <button onClick={() => void pasteFromClipboard()} role="menuitem" type="button">Paste</button>
           <button onClick={selectAllTerminalText} role="menuitem" type="button">Select all</button>
