@@ -4,7 +4,9 @@ import type { GitFileDiffResponse } from "../../shared/types.js";
 import {
   copyPayloadForGitLine,
   copyStatusLabel,
+  copyTextToClipboard,
   defaultGitDiffMode,
+  diffEditorOptionsForMode,
   validSelectedNewLine,
   type GitDiffCopyStatus,
   type GitDiffMode,
@@ -61,12 +63,11 @@ export function GitDiffViewer({ diff, isLoading }: GitDiffViewerProps) {
 
   async function copyLocation() {
     if (!diff) return;
-    try {
-      await navigator.clipboard.writeText(copyPayloadForGitLine(diff.path, selectedNewLine));
+    if (await copyTextToClipboard(copyPayloadForGitLine(diff.path, selectedNewLine))) {
       setCopyStatus("copied");
-    } catch {
-      setCopyStatus("failed");
+      return;
     }
+    setCopyStatus("failed");
   }
 
   function selectMode(nextMode: GitDiffMode) {
@@ -131,17 +132,17 @@ export function GitDiffViewer({ diff, isLoading }: GitDiffViewerProps) {
       </div>
       <div className="diff-editor-host">
         <DiffEditor
-          key={diff.path}
+          key={`${diff.path}-${mode}`}
           language={languageForPath(diff.path)}
           modified={diff.current}
           onMount={handleMount}
           options={{
             automaticLayout: true,
+            ...diffEditorOptionsForMode(mode),
             fontSize: 13,
             minimap: { enabled: false },
             originalEditable: false,
             readOnly: true,
-            renderSideBySide: mode === "side-by-side",
             scrollBeyondLastLine: false,
           }}
           original={diff.original}

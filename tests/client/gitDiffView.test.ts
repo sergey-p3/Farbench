@@ -1,8 +1,10 @@
-import { describe, expect, test } from "vitest";
+import { describe, expect, test, vi } from "vitest";
 import {
   copyPayloadForGitLine,
   copyStatusLabel,
+  copyTextToClipboard,
   defaultGitDiffMode,
+  diffEditorOptionsForMode,
   validSelectedNewLine,
 } from "../../src/client/gitDiffView.js";
 
@@ -33,5 +35,75 @@ describe("git diff view helpers", () => {
     expect(copyStatusLabel("idle")).toBe("Copy location");
     expect(copyStatusLabel("copied")).toBe("Copied");
     expect(copyStatusLabel("failed")).toBe("Copy failed");
+  });
+
+  test("forces side-by-side mode even when Monaco has limited width", () => {
+    expect(diffEditorOptionsForMode("side-by-side")).toMatchObject({
+      renderSideBySide: true,
+      useInlineViewWhenSpaceIsLimited: false,
+      renderSideBySideInlineBreakpoint: 0,
+    });
+    expect(diffEditorOptionsForMode("line-by-line")).toMatchObject({
+      renderSideBySide: false,
+    });
+  });
+
+  test("copies with clipboard api when available", async () => {
+    const writeText = vi.fn<[{ text: string }], Promise<void>>();
+    writeText.mockResolvedValue(undefined);
+
+    await expect(copyTextToClipboard("src/app.ts:42", {
+      clipboard: { writeText: (text) => writeText({ text }) },
+    })).resolves.toBe(true);
+    expect(writeText).toHaveBeenCalledWith({ text: "src/app.ts:42" });
+  });
+
+  test("falls back to a temporary textarea when clipboard api is unavailable", async () => {
+    const textarea = {
+      focus: vi.fn(),
+      select: vi.fn(),
+      setAttribute: vi.fn(),
+      style: {},
+      value: "",
+    };
+    const body = {
+      appendChild: vi.fn(),
+      removeChild: vi.fn(),
+    };
+    const documentRef = {
+      body,
+      createElement: vi.fn(() => textarea),
+      execCommand: vi.fn(() => true),
+    } as unknown as Document;
+
+    await expect(copyTextToClipboard("src/app.ts", { document: documentRef })).resolves.toBe(true);
+
+    expect(textarea.value).toBe("src/app.ts");
+    expect(body.appendChild).toHaveBeenCalledWith(textarea);
+    expect(textarea.select).toHaveBeenCalled();
+    expect(documentRef.execCommand).toHaveBeenCalledWith("copy");
+    expect(body.removeChild).toHaveBeenCalledWith(textarea);
+  });
+
+  test("falls back to textarea when clipboard api rejects", async () => {
+    const documentRef = {
+      body: {
+        appendChild: vi.fn(),
+        removeChild: vi.fn(),
+      },
+      createElement: vi.fn(() => ({
+        focus: vi.fn(),
+        select: vi.fn(),
+        setAttribute: vi.fn(),
+        style: {},
+        value: "",
+      })),
+      execCommand: vi.fn(() => true),
+    } as unknown as Document;
+
+    await expect(copyTextToClipboard("src/app.ts", {
+      clipboard: { writeText: () => Promise.reject(new Error("denied")) },
+      document: documentRef,
+    })).resolves.toBe(true);
   });
 });

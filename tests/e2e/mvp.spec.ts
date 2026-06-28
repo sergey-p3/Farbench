@@ -149,6 +149,11 @@ test("owner uses mobile focused item shell and restores last active item", async
     await expect(page.getByLabel("Git diff").getByText("changed line")).toBeVisible();
     await page.getByRole("button", { name: "Line by line" }).click();
     await expect(page.getByRole("button", { name: "Line by line" })).toHaveAttribute("aria-pressed", "true");
+    await page.getByRole("button", { name: "Side by side" }).click();
+    await expect(page.getByRole("button", { name: "Side by side" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.locator(".diff-editor-host .monaco-diff-editor.side-by-side")).toBeVisible();
+    await page.getByRole("button", { name: "Copy location" }).click();
+    await expect(page.getByRole("button", { name: "Copied" })).toBeVisible();
 
     await openTopMenu(page);
     await page.getByRole("button", { name: "Create item" }).click();
