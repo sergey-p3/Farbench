@@ -58,6 +58,21 @@ describe("metadata database", () => {
     expect(updated?.endedAt).toBe(ended?.endedAt);
   });
 
+  it("does not revive killed sessions through status updates", () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const session = db.createSession({ workspaceId: workspace.id, name: "Codex", type: "codex", tmuxName: "rd_demo" });
+
+    db.updateSessionStatus(session.id, "killed");
+    const killed = db.getSession(session.id);
+    db.updateSessionStatus(session.id, "running");
+
+    const updated = db.getSession(session.id);
+    expect(updated?.status).toBe("killed");
+    expect(updated?.endedAt).toBe(killed?.endedAt);
+  });
+
   it("orders active sessions before closed history", () => {
     dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
     const db = createDatabase(join(dir, "state.db"));

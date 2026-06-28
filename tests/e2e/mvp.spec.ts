@@ -131,9 +131,9 @@ test("owner uses mobile focused item shell and restores last active item", async
     await expect(page.frameLocator(`iframe[title="Preview port ${preview.port}"]`).getByText("preview fixture ok")).toBeVisible();
 
     await page.getByRole("button", { name: "Open item switcher" }).click();
-    await expect(page.getByLabel("Item switcher").getByRole("button", { name: /Files/ })).toBeVisible();
-    await expect(page.getByLabel("Item switcher").getByRole("button", { name: /Git diff/ })).toBeVisible();
-    await page.getByLabel("Item switcher").getByRole("button", { name: /Files/ }).click();
+    await expect(page.getByLabel("Item switcher").getByRole("button", { name: /^Files\b/ })).toBeVisible();
+    await expect(page.getByLabel("Item switcher").getByRole("button", { name: /^Git\b/ })).toBeVisible();
+    await page.getByLabel("Item switcher").getByRole("button", { name: /^Files\b/ }).click();
     await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
 
     await page.reload();
@@ -217,6 +217,7 @@ test("mobile terminal exposes special keys and stays inside a reduced viewport",
 
 test("mobile terminal special keys send toolbar input while preserving keyboard textarea focus", async ({ page }) => {
   let terminalSession: Session | null = null;
+  const deletedSessionIds: string[] = [];
 
   await page.addInitScript(() => {
     const sentMessages: string[] = [];
@@ -277,9 +278,11 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     Reflect.set(window, "__terminalSentMessages", sentMessages);
   });
 
-  await page.route("**/api/workspaces/*/sessions", async (route) => {
+  await page.route("**/api/workspaces/*/sessions**", async (route) => {
     const request = route.request();
-    const workspaceId = decodeURIComponent(new URL(request.url()).pathname.split("/")[3] ?? "workspace");
+    const pathnameParts = new URL(request.url()).pathname.split("/");
+    const workspaceId = decodeURIComponent(pathnameParts[3] ?? "workspace");
+    const sessionId = pathnameParts[5] ? decodeURIComponent(pathnameParts[5]) : null;
 
     if (request.method() === "POST") {
       terminalSession = {
@@ -295,6 +298,13 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
         endedAt: null,
       };
       await route.fulfill({ contentType: "application/json", json: { session: terminalSession } });
+      return;
+    }
+
+    if (request.method() === "DELETE" && sessionId) {
+      deletedSessionIds.push(sessionId);
+      terminalSession = null;
+      await route.fulfill({ contentType: "application/json", json: { ok: true } });
       return;
     }
 
@@ -522,4 +532,10 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   const activeElementLabelAfterTouch = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
   expect(sentMessagesAfterTouchCtrl.filter((message) => message.type === "input").map((message) => message.data)).toEqual(["\x03", "\x1b[A", "\x03", "\x03"]);
   expect(activeElementLabelAfterTouch).toBe("Terminal input");
+
+  await page.getByRole("button", { name: "Open item switcher" }).click();
+  await page.getByLabel("Item switcher").getByRole("button", { name: "Close bash session" }).click();
+  await expect(page.getByLabel("Item switcher").getByText("No open items in this workspace.")).toBeVisible();
+  await expect(page.getByRole("heading", { level: 1, name: "No item open" })).toBeVisible();
+  expect(deletedSessionIds).toEqual(["e2e-terminal-session"]);
 });

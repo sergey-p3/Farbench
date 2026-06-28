@@ -9,6 +9,7 @@ import {
   itemsForWorkspace,
   normalizeLayout,
   reconcileSessions,
+  removeItem,
 } from "../itemLayout.js";
 import { loadLayout, saveLayout } from "../layoutStore.js";
 import { CreateItemSheet } from "./CreateItemSheet.js";
@@ -121,6 +122,19 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
     setIsSwitcherOpen(false);
   }
 
+  async function closeItem(item: WorkspaceItem) {
+    setError(null);
+    try {
+      if ((item.kind === "agent" || item.kind === "terminal") && item.sessionId) {
+        await api.killSession(item.workspaceId, item.sessionId);
+      }
+      setLayout((current) => removeItem(current, item.id));
+    } catch (closeError) {
+      const message = handleApiError(closeError, "Unable to close item");
+      if (message) setError(message);
+    }
+  }
+
   function nextRequestId(): number {
     requestRef.current += 1;
     return requestRef.current;
@@ -176,6 +190,7 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
         isOpen={isSwitcherOpen}
         items={visibleItems}
         onClose={() => setIsSwitcherOpen(false)}
+        onCloseItem={(item) => void closeItem(item)}
         onFocusItem={focusExistingItem}
         onSelectWorkspace={(workspaceId) => void selectWorkspace(workspaceId)}
         selectedWorkspace={selectedWorkspace}

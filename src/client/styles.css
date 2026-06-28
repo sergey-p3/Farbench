@@ -321,17 +321,34 @@ button:disabled {
   border-radius: 6px;
   color: inherit;
   display: grid;
-  gap: 3px;
+  gap: 6px;
+  grid-template-columns: minmax(0, 1fr) auto;
   min-height: 62px;
   min-width: 0;
-  padding: 9px;
-  text-align: left;
+  padding: 6px;
   width: 100%;
 }
 
 .switcher-row.active {
   background: #edf6f8;
   border-color: #5a9aaa;
+}
+
+.switcher-target {
+  background: transparent;
+  border: 0;
+  color: inherit;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 3px;
+  text-align: left;
+}
+
+.switcher-close {
+  align-self: center;
+  height: 34px;
+  min-width: 34px;
 }
 
 .item-kind {

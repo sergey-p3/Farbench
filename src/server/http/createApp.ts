@@ -8,12 +8,14 @@ import type { ServerConfig } from "../config.js";
 import type { MetadataDb } from "../db.js";
 import { createAuth } from "../auth.js";
 import { LocalAgent } from "../agent/LocalAgent.js";
+import type { AgentGateway } from "../agent/AgentGateway.js";
 import { registerTerminalSocket } from "../ws/terminalSocket.js";
 import type { PortPreview, SessionType, Workspace } from "../../shared/types.js";
 
 interface CreateAppInput {
   config: ServerConfig;
   db: MetadataDb;
+  agent?: AgentGateway;
 }
 
 type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
@@ -88,11 +90,10 @@ function isHtmlResponse(headers: IncomingHttpHeaders): boolean {
   return value.toLowerCase().includes("text/html");
 }
 
-export async function createApp({ config, db }: CreateAppInput): Promise<Server> {
+export async function createApp({ config, db, agent = new LocalAgent() }: CreateAppInput): Promise<Server> {
   const app = express();
   const server = createServer(app);
   const auth = createAuth(config.authToken);
-  const agent = new LocalAgent();
   const previews = new Map<string, PortPreview>();
 
   const recordAudit = (type: string, metadata: Record<string, string | number | boolean | null>): void => {
@@ -163,6 +164,24 @@ export async function createApp({ config, db }: CreateAppInput): Promise<Server>
       db.updateSessionStatus(session.id, "running");
       recordAudit("session.create", { sessionId: session.id, workspaceId: workspace.id, type });
       res.json({ session: db.getSession(session.id) ?? session });
+    }),
+  );
+
+  app.delete(
+    "/api/workspaces/:workspaceId/sessions/:sessionId",
+    asyncHandler(async (req, res) => {
+      const workspace = getWorkspace(req.params.workspaceId);
+      const session = db.getSession(req.params.sessionId);
+      if (!session || session.workspaceId !== workspace.id) {
+        throw httpError(404, "Session not found");
+      }
+
+      if (await agent.terminalSessionExists(session.tmuxName)) {
+        await agent.killSession(session.tmuxName);
+      }
+      db.updateSessionStatus(session.id, "killed");
+      recordAudit("session.kill", { sessionId: session.id, workspaceId: workspace.id });
+      res.json({ ok: true });
     }),
   );
 

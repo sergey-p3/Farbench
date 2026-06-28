@@ -45,7 +45,7 @@ export function reconcileSessions(layout: BrowserLayout, workspaceId: string, se
   const existingItemIds = new Set(nextItems.map((item) => item.id));
   const nextPaneItemIds = nextPane.itemIds.filter((itemId) => existingItemIds.has(itemId));
 
-  for (const session of sessions) {
+  for (const session of sessions.filter(isOpenSession)) {
     const item = sessionToItem(session, now);
     nextItems.push(item);
     if (!nextPaneItemIds.includes(item.id)) nextPaneItemIds.push(item.id);
@@ -151,6 +151,22 @@ export function focusItem(layout: BrowserLayout, itemId: string, now = new Date(
   return normalizeLayout({ ...normalized, activePaneId: pane.id, panes, items });
 }
 
+export function removeItem(layout: BrowserLayout, itemId: string): BrowserLayout {
+  const normalized = normalizeLayout(layout);
+  const items = normalized.items.filter((item) => item.id !== itemId);
+  const panes = normalized.panes.map((pane) => {
+    const removedIndex = pane.itemIds.indexOf(itemId);
+    const itemIds = pane.itemIds.filter((candidate) => candidate !== itemId);
+    const activeItemId = pane.activeItemId === itemId
+      ? itemIds[removedIndex] ?? itemIds[removedIndex - 1] ?? null
+      : pane.activeItemId;
+
+    return { ...pane, activeItemId, itemIds };
+  });
+
+  return normalizeLayout({ ...normalized, panes, items });
+}
+
 export function activeItem(layout: BrowserLayout): WorkspaceItem | null {
   const normalized = normalizeLayout(layout);
   const pane = normalized.panes.find((candidate) => candidate.id === normalized.activePaneId) ?? normalized.panes[0];
@@ -210,6 +226,10 @@ function preserveItemDuringSessionReconcile(item: WorkspaceItem, workspaceId: st
     ...(item.createdAt === undefined ? {} : { createdAt: item.createdAt }),
     ...(item.lastActiveAt === undefined ? {} : { lastActiveAt: item.lastActiveAt }),
   }];
+}
+
+function isOpenSession(session: Session): boolean {
+  return session.status !== "exited" && session.status !== "crashed" && session.status !== "killed";
 }
 
 function normalizePane(value: unknown): PaneLayout | null {

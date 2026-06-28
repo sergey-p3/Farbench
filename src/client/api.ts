@@ -100,6 +100,13 @@ export const api = {
     return response.session;
   },
 
+  async killSession(workspaceId: string, sessionId: string): Promise<void> {
+    await request<{ ok: true }>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/sessions/${encodeURIComponent(sessionId)}`,
+      { method: "DELETE" },
+    );
+  },
+
   async files(workspaceId: string, path = "."): Promise<FileResource[]> {
     const response = await request<{ files: FileResource[] }>(
       `/api/workspaces/${encodeURIComponent(workspaceId)}/files${query({ path })}`,

@@ -7,6 +7,7 @@ interface ItemSwitcherProps {
   selectedWorkspace: Workspace | null;
   workspaces: Workspace[];
   onClose: () => void;
+  onCloseItem: (item: WorkspaceItem) => void;
   onFocusItem: (itemId: string) => void;
   onSelectWorkspace: (workspaceId: string) => void;
 }
@@ -18,6 +19,7 @@ export function ItemSwitcher({
   selectedWorkspace,
   workspaces,
   onClose,
+  onCloseItem,
   onFocusItem,
   onSelectWorkspace,
 }: ItemSwitcherProps) {
@@ -50,17 +52,26 @@ export function ItemSwitcher({
 
         <div className="switcher-list" role="list">
           {items.map((item) => (
-            <button
+            <div
               aria-current={item.id === activeItemId ? "page" : undefined}
               className={item.id === activeItemId ? "switcher-row active" : "switcher-row"}
               key={item.id}
-              onClick={() => onFocusItem(item.id)}
-              type="button"
+              role="listitem"
             >
-              <span className="item-kind">{labelForKind(item.kind)}</span>
-              <span className="item-name">{item.title}</span>
-              <span className="item-meta">{detailForItem(item)}</span>
-            </button>
+              <button className="switcher-target" onClick={() => onFocusItem(item.id)} type="button">
+                <span className="item-kind">{labelForKind(item.kind)}</span>
+                <span className="item-name">{item.title}</span>
+                <span className="item-meta">{detailForItem(item)}</span>
+              </button>
+              <button
+                aria-label={`Close ${item.title}`}
+                className="switcher-close icon-button"
+                onClick={() => onCloseItem(item)}
+                type="button"
+              >
+                ×
+              </button>
+            </div>
           ))}
           {items.length === 0 ? <p className="empty-state">No open items in this workspace.</p> : null}
         </div>

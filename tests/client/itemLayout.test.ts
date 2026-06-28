@@ -8,6 +8,7 @@ import {
   focusItem,
   normalizeLayout,
   reconcileSessions,
+  removeItem,
   sessionItemId,
 } from "../../src/client/itemLayout.js";
 
@@ -158,6 +159,39 @@ describe("item layout helpers", () => {
     expect(item).not.toHaveProperty("sessionId");
     expect(reconciled.panes[0].itemIds).toContain(sessionItemId("bash-1"));
     expect(reconciled.panes[0].activeItemId).toBe(sessionItemId("bash-1"));
+  });
+
+  test("does not reconcile terminal history into open items", () => {
+    const reconciled = reconcileSessions(defaultLayout, "w1", [
+      session({ id: "killed-1", status: "killed", endedAt: "2026-06-21T10:30:00.000Z" }),
+      session({ id: "exited-1", status: "exited", endedAt: "2026-06-21T10:31:00.000Z" }),
+      session({ id: "running-1", status: "running" }),
+    ], "2026-06-21T11:00:00.000Z");
+
+    expect(reconciled.items.map((item) => item.id)).toEqual([sessionItemId("running-1")]);
+    expect(reconciled.panes[0].itemIds).toEqual([sessionItemId("running-1")]);
+  });
+
+  test("removeItem removes an item from panes and focuses the next item to the right", () => {
+    const filesItem = createBrowserItem({ kind: "files", workspaceId: "w1", now: "2026-06-21T10:00:00.000Z" });
+    const gitItem = createBrowserItem({ kind: "git", workspaceId: "w1", now: "2026-06-21T10:01:00.000Z" });
+    const previewItem = createBrowserItem({ kind: "preview", workspaceId: "w1", port: 3000, path: "/", now: "2026-06-21T10:02:00.000Z" });
+    const layout = focusItem(addItemAndFocus(addItemAndFocus(addItemAndFocus(defaultLayout, filesItem), gitItem), previewItem), gitItem.id);
+
+    const closed = removeItem(layout, gitItem.id);
+
+    expect(closed.items.map((item) => item.id)).toEqual([filesItem.id, previewItem.id]);
+    expect(closed.panes[0]).toEqual({ id: "main", activeItemId: previewItem.id, itemIds: [filesItem.id, previewItem.id] });
+  });
+
+  test("removeItem focuses the previous item when closing the last active item", () => {
+    const filesItem = createBrowserItem({ kind: "files", workspaceId: "w1" });
+    const gitItem = createBrowserItem({ kind: "git", workspaceId: "w1" });
+    const layout = addItemAndFocus(addItemAndFocus(defaultLayout, filesItem), gitItem);
+
+    const closed = removeItem(layout, gitItem.id);
+
+    expect(closed.panes[0]).toEqual({ id: "main", activeItemId: filesItem.id, itemIds: [filesItem.id] });
   });
 
   test("focusItem updates active pane and last active time", () => {
