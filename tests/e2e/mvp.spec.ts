@@ -1,5 +1,5 @@
 import { createServer, type Server } from "node:http";
-import { expect, test } from "@playwright/test";
+import { expect, test, type Page } from "@playwright/test";
 import type { Session } from "../../src/shared/types.js";
 
 async function startPreviewServer(): Promise<{ port: number; server: Server }> {
@@ -34,6 +34,23 @@ async function closeServer(server: Server): Promise<void> {
   });
 }
 
+async function openTopMenu(page: Page): Promise<void> {
+  const hideTopMenu = page.getByRole("button", { name: "Hide top menu" });
+  if (await hideTopMenu.isVisible()) return;
+
+  const showTopMenu = page.getByRole("button", { name: "Show top menu" });
+  await showTopMenu.click();
+  await expect(hideTopMenu).toBeVisible();
+}
+
+async function closeTopMenu(page: Page): Promise<void> {
+  const hideTopMenu = page.getByRole("button", { name: "Hide top menu" });
+  if (await hideTopMenu.isVisible()) {
+    await hideTopMenu.click();
+    await expect(page.getByRole("button", { name: "Show top menu" })).toBeVisible();
+  }
+}
+
 test("owner uses mobile focused item shell and restores last active item", async ({ page }, testInfo) => {
   const preview = await startPreviewServer();
   testInfo.annotations.push({
@@ -49,6 +66,7 @@ test("owner uses mobile focused item shell and restores last active item", async
     await page.getByLabel("Access token").fill("dev-password");
     await page.getByRole("button", { name: "Connect" }).click();
 
+    await openTopMenu(page);
     await expect(page.getByRole("heading", { level: 1, name: "No item open" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Workspaces" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Sessions" })).toHaveCount(0);
@@ -57,7 +75,9 @@ test("owner uses mobile focused item shell and restores last active item", async
     await page.getByRole("button", { name: "Create item" }).click();
     await expect(page.getByRole("button", { name: "Files" })).toBeVisible();
     await page.getByRole("button", { name: "Files" }).click();
+    await openTopMenu(page);
     await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
+    await closeTopMenu(page);
     await page.getByRole("button", { name: /src/ }).click();
     await page.getByRole("button", { name: /nested\.txt/ }).click();
     await expect(page.getByLabel("File editor").getByText("src/nested.txt")).toBeVisible();
@@ -108,41 +128,87 @@ test("owner uses mobile focused item shell and restores last active item", async
     expect(editorTouch.renderedBefore).toContain("nested content line 001");
     expect(editorTouch.renderedAfter).not.toContain("nested content line 001");
 
+    await openTopMenu(page);
     await page.getByRole("button", { name: "Create item" }).click();
     await page.getByRole("button", { name: "Files" }).click();
     await expect(page.getByRole("heading", { level: 3, name: "Files is already open" })).toBeVisible();
     await page.getByRole("button", { name: "Focus existing" }).click();
+    await openTopMenu(page);
     await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
 
     await page.getByRole("button", { name: "Create item" }).click();
     await page.getByRole("button", { name: "Git diff" }).click();
+    await openTopMenu(page);
     await expect(page.getByRole("heading", { level: 1, name: "Git diff" })).toBeVisible();
+    await closeTopMenu(page);
     await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
     await page.getByRole("button", { name: /app\.txt/ }).click();
     await expect(page.getByLabel("Git diff").getByText("-original line")).toBeVisible();
     await expect(page.getByLabel("Git diff").getByText("+changed line")).toBeVisible();
 
+    await openTopMenu(page);
     await page.getByRole("button", { name: "Create item" }).click();
     await page.getByLabel("Port").fill(String(preview.port));
     await page.getByRole("button", { name: "Preview" }).click();
+    await openTopMenu(page);
     await expect(page.getByRole("heading", { level: 1, name: new RegExp(`Preview :${preview.port}`) })).toBeVisible();
+    await closeTopMenu(page);
     await page.getByRole("button", { name: "Expose" }).click();
     await expect(page.getByRole("link", { name: "Open in new tab" })).toBeVisible();
     await expect(page.frameLocator(`iframe[title="Preview port ${preview.port}"]`).getByText("preview fixture ok")).toBeVisible();
 
+    await openTopMenu(page);
     await page.getByRole("button", { name: "Open item switcher" }).click();
     await expect(page.getByLabel("Item switcher").getByRole("button", { name: /^Files\b/ })).toBeVisible();
     await expect(page.getByLabel("Item switcher").getByRole("button", { name: /^Git\b/ })).toBeVisible();
     await page.getByLabel("Item switcher").getByRole("button", { name: /^Files\b/ }).click();
+    await openTopMenu(page);
     await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
 
     await page.reload();
+    await openTopMenu(page);
     await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
     await expect(page.getByRole("heading", { name: "Workspaces" })).toHaveCount(0);
     await expect(page.getByRole("heading", { name: "Sessions" })).toHaveCount(0);
   } finally {
     await closeServer(preview.server);
   }
+});
+
+test("top menu collapses into an overlay and can be pinned into layout", async ({ page }) => {
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.context().clearCookies();
+  await page.goto("/");
+
+  await page.getByLabel("Access token").fill("dev-password");
+  await page.getByRole("button", { name: "Connect" }).click();
+
+  const pane = page.getByLabel("Focused item");
+  const paneBoxCollapsed = await pane.boundingBox();
+  expect(paneBoxCollapsed).not.toBeNull();
+  if (!paneBoxCollapsed) throw new Error("Unable to measure focused item");
+  expect(Math.round(paneBoxCollapsed.y)).toBe(0);
+
+  await expect(page.getByRole("button", { name: "Show top menu" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pin top menu" })).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Show top menu" }).click();
+  await expect(page.getByRole("button", { name: "Hide top menu" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Pin top menu" })).toBeVisible();
+  await expect(page.getByRole("button", { name: "Create item" })).toBeVisible();
+
+  const paneBoxOverlay = await pane.boundingBox();
+  expect(paneBoxOverlay).not.toBeNull();
+  if (!paneBoxOverlay) throw new Error("Unable to measure focused item after expanding menu");
+  expect(Math.round(paneBoxOverlay.y)).toBe(Math.round(paneBoxCollapsed.y));
+
+  await page.getByRole("button", { name: "Pin top menu" }).click();
+  await expect(page.getByRole("button", { name: "Unpin top menu" })).toBeVisible();
+
+  const paneBoxPinned = await pane.boundingBox();
+  expect(paneBoxPinned).not.toBeNull();
+  if (!paneBoxPinned) throw new Error("Unable to measure focused item after pinning menu");
+  expect(Math.round(paneBoxPinned.y)).toBeGreaterThan(Math.round(paneBoxCollapsed.y));
 });
 
 test("mobile terminal exposes special keys and stays inside a reduced viewport", async ({ page }) => {
@@ -183,6 +249,7 @@ test("mobile terminal exposes special keys and stays inside a reduced viewport",
 
   await page.getByLabel("Access token").fill("dev-password");
   await page.getByRole("button", { name: "Connect" }).click();
+  await openTopMenu(page);
   await page.getByRole("button", { name: "Create item" }).click();
   await page.getByRole("button", { name: "Terminal" }).click();
 
@@ -322,6 +389,7 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
 
   await page.getByLabel("Access token").fill("dev-password");
   await page.getByRole("button", { name: "Connect" }).click();
+  await openTopMenu(page);
   await page.getByRole("button", { name: "Create item" }).click();
   await page.getByRole("button", { name: "Terminal" }).click();
 
@@ -533,6 +601,7 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   expect(sentMessagesAfterTouchCtrl.filter((message) => message.type === "input").map((message) => message.data)).toEqual(["\x03", "\x1b[A", "\x03", "\x03"]);
   expect(activeElementLabelAfterTouch).toBe("Terminal input");
 
+  await openTopMenu(page);
   await page.getByRole("button", { name: "Open item switcher" }).click();
   await page.getByLabel("Item switcher").getByRole("button", { name: "Close bash session" }).click();
   await expect(page.getByLabel("Item switcher").getByText("No open items in this workspace.")).toBeVisible();

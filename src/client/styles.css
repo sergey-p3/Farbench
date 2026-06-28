@@ -152,17 +152,55 @@ button:disabled {
   min-height: 0;
   min-width: 0;
   overflow: hidden;
+  position: relative;
 }
 
 .shell-top-bar {
   align-items: center;
-  background: #ffffff;
-  border-bottom: 1px solid #d8dee6;
+  background: rgb(255 255 255 / 90%);
+  border: 1px solid rgb(200 209 220 / 74%);
+  border-radius: 7px;
+  box-shadow: 0 12px 30px rgb(31 41 51 / 12%);
   display: grid;
-  gap: 10px;
-  grid-template-columns: auto minmax(0, 1fr) auto auto;
-  min-height: 58px;
-  padding: 8px 10px;
+  gap: 6px;
+  grid-template-columns: auto auto minmax(0, 1fr) auto auto auto;
+  min-height: 40px;
+  padding: 4px 6px;
+  z-index: 10;
+}
+
+.top-menu-floating .shell-top-bar {
+  left: 8px;
+  position: absolute;
+  top: 8px;
+}
+
+.top-menu-floating .shell-top-bar.top-menu-expanded {
+  right: 8px;
+}
+
+.top-menu-pinned .shell-top-bar {
+  border-left: 0;
+  border-radius: 0;
+  border-right: 0;
+  border-top: 0;
+  box-shadow: none;
+  position: relative;
+}
+
+.shell-top-bar.top-menu-collapsed {
+  background: rgb(255 255 255 / 62%);
+  border-color: rgb(200 209 220 / 58%);
+  grid-template-columns: auto;
+  padding: 3px;
+}
+
+.top-menu-toggle {
+  background: rgb(255 255 255 / 70%);
+}
+
+.shell-top-bar.top-menu-expanded .top-menu-toggle {
+  background: #ffffff;
 }
 
 .top-bar-title {
@@ -171,7 +209,7 @@ button:disabled {
 
 .top-bar-title h1 {
   color: #1f2933;
-  font-size: 1rem;
+  font-size: 0.92rem;
   line-height: 1.2;
   margin: 0;
   overflow: hidden;
@@ -186,12 +224,12 @@ button:disabled {
   border-radius: 6px;
   color: #263442;
   display: inline-grid;
-  font-size: 1.2rem;
+  font-size: 1rem;
   font-weight: 700;
-  height: 40px;
+  height: 32px;
   justify-content: center;
   line-height: 1;
-  min-width: 40px;
+  min-width: 32px;
   padding: 0;
 }
 

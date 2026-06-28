@@ -27,6 +27,8 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
   const [error, setError] = useState<string | null>(null);
   const [isSwitcherOpen, setIsSwitcherOpen] = useState(false);
   const [isCreateOpen, setIsCreateOpen] = useState(false);
+  const [isTopMenuOpen, setIsTopMenuOpen] = useState(false);
+  const [isTopMenuPinned, setIsTopMenuPinned] = useState(false);
   const requestRef = useRef(0);
   const selectedWorkspaceIdRef = useRef(layout.selectedWorkspaceId);
 
@@ -107,6 +109,7 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
       const sessions = await api.sessions(workspaceId);
       if (!isCurrentWorkspaceRequest(workspaceId, requestId)) return;
       setLayout((current) => focusItem(reconcileSessions(current, workspaceId, sessions), `session:${session.id}`));
+      collapseUnpinnedTopMenu();
     } catch (createError) {
       const message = handleApiError(createError, "Unable to create session");
       if (message && isCurrentWorkspaceRequest(workspaceId, requestId)) throw new Error(message);
@@ -115,11 +118,13 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
 
   function createBrowserItem(item: WorkspaceItem) {
     setLayout((current) => addItemAndFocus(current, item));
+    collapseUnpinnedTopMenu();
   }
 
   function focusExistingItem(itemId: string) {
     setLayout((current) => focusItem(current, itemId));
     setIsSwitcherOpen(false);
+    collapseUnpinnedTopMenu();
   }
 
   async function closeItem(item: WorkspaceItem) {
@@ -156,17 +161,49 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
     return loadError instanceof Error ? loadError.message : fallbackMessage;
   }
 
+  function toggleTopMenuPin() {
+    setIsTopMenuPinned((current) => !current);
+    setIsTopMenuOpen(true);
+  }
+
+  function collapseUnpinnedTopMenu() {
+    if (!isTopMenuPinned) setIsTopMenuOpen(false);
+  }
+
+  const isTopMenuExpanded = isTopMenuPinned || isTopMenuOpen;
+
   return (
     <main className="app-shell item-shell">
-      <section className="workspace-panel focused-shell" aria-label="Workspace">
-        <header className="top-bar shell-top-bar">
-          <button className="icon-button" aria-label="Open item switcher" onClick={() => setIsSwitcherOpen(true)} type="button">☰</button>
-          <div className="top-bar-title">
-            <p className="eyebrow">{selectedWorkspace?.name ?? "Workspace"}</p>
-            <h1>{active?.title ?? "No item open"}</h1>
-          </div>
-          <span className="session-chip">{active ? `${active.kind} · ${active.status}` : "Empty"}</span>
-          <button className="icon-button primary-icon" aria-label="Create item" onClick={() => setIsCreateOpen(true)} type="button">+</button>
+      <section className={`workspace-panel focused-shell ${isTopMenuPinned ? "top-menu-pinned" : "top-menu-floating"}`} aria-label="Workspace">
+        <header className={`top-bar shell-top-bar ${isTopMenuExpanded ? "top-menu-expanded" : "top-menu-collapsed"}`}>
+          <button
+            className="icon-button top-menu-toggle"
+            aria-expanded={isTopMenuExpanded}
+            aria-label={isTopMenuExpanded ? "Hide top menu" : "Show top menu"}
+            onClick={() => {
+              if (isTopMenuPinned) {
+                setIsTopMenuPinned(false);
+                setIsTopMenuOpen(false);
+                return;
+              }
+              setIsTopMenuOpen((current) => !current);
+            }}
+            type="button"
+          >
+            ☰
+          </button>
+          {isTopMenuExpanded ? (
+            <>
+              <button className="icon-button" aria-label="Open item switcher" onClick={() => setIsSwitcherOpen(true)} type="button">⇄</button>
+              <div className="top-bar-title">
+                <p className="eyebrow">{selectedWorkspace?.name ?? "Workspace"}</p>
+                <h1>{active?.title ?? "No item open"}</h1>
+              </div>
+              <span className="session-chip">{active ? `${active.kind} · ${active.status}` : "Empty"}</span>
+              <button className="icon-button" aria-label={isTopMenuPinned ? "Unpin top menu" : "Pin top menu"} onClick={toggleTopMenuPin} type="button">⌖</button>
+              <button className="icon-button primary-icon" aria-label="Create item" onClick={() => setIsCreateOpen(true)} type="button">+</button>
+            </>
+          ) : null}
         </header>
 
         {error ? (
