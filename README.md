@@ -33,6 +33,16 @@ Available scripts:
 
 `run.sh` defaults to port `7000`; `dev.sh` defaults to port `9154`. Both use the directory where you launched the script as `WORKSPACE` and a random 5-8 character workspace name. `dev.sh` binds to `0.0.0.0` and passes `AUTH_TOKEN=dev-password` by default; override with `HOST`, `PORT`, `WORKSPACE`, `WORKSPACE_NAME`, or `AUTH_TOKEN` when needed.
 
+`dev.sh` can also run as a background daemon that survives closing the launching terminal:
+
+```sh
+./scripts/dev.sh --daemon
+./scripts/dev.sh --restart
+./scripts/dev.sh --stop
+```
+
+Daemon state is stored in `.remote-dev/dev.pid`, with logs in `.remote-dev/dev.log`. Override `REMOTE_DEV_RUN_DIR` to store those files somewhere else.
+
 Loopback development access uses the default token:
 
 ```text
