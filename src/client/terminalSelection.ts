@@ -71,6 +71,16 @@ export interface TerminalSelectionContainsCellInput {
   selection: TerminalBufferSelection;
 }
 
+export interface TerminalSelectedBufferLine {
+  isWrapped: boolean;
+  text: string;
+}
+
+export interface TerminalSelectedTextInput {
+  getLine: (row: number) => TerminalSelectedBufferLine | null | undefined;
+  selection: TerminalBufferSelection;
+}
+
 export function terminalCellFromPointer(input: TerminalCellFromPointerInput): TerminalCell | null {
   if (input.cellWidth <= 0 || input.cellHeight <= 0 || input.cols <= 0 || input.rows <= 0) return null;
 
@@ -136,4 +146,31 @@ export function terminalSelectionContainsCell(input: TerminalSelectionContainsCe
   const endOffset = input.selection.end.row * input.cols + input.selection.end.column;
   const cellOffset = input.cell.row * input.cols + input.cell.column;
   return cellOffset >= Math.min(startOffset, endOffset) && cellOffset < Math.max(startOffset, endOffset);
+}
+
+export function terminalSelectedTextFromBuffer(input: TerminalSelectedTextInput): string {
+  const selection = normalizeTerminalSelection(input.selection);
+  const parts: string[] = [];
+
+  for (let row = selection.start.row; row <= selection.end.row; row += 1) {
+    const line = input.getLine(row);
+    if (!line) continue;
+
+    const startColumn = row === selection.start.row ? selection.start.column : 0;
+    const endColumn = row === selection.end.row ? selection.end.column : line.text.length;
+    const text = line.text.slice(startColumn, Math.max(startColumn, endColumn));
+    if (row > selection.start.row && !line.isWrapped) {
+      parts.push("\n");
+    }
+    parts.push(text);
+  }
+
+  return parts.join("");
+}
+
+function normalizeTerminalSelection(selection: TerminalBufferSelection): TerminalBufferSelection {
+  const startOffset = selection.start.row * Number.MAX_SAFE_INTEGER + selection.start.column;
+  const endOffset = selection.end.row * Number.MAX_SAFE_INTEGER + selection.end.column;
+  if (startOffset <= endOffset) return selection;
+  return { start: selection.end, end: selection.start };
 }

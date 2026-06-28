@@ -10,6 +10,7 @@ import { terminalControlSequence, terminalKeyLabels, type TerminalToolbarKey } f
 import {
   terminalCellFromPointer,
   terminalHandleLayoutFromSelection,
+  terminalSelectedTextFromBuffer,
   terminalSelectArgsFromEndpoints,
   terminalWordRangeAtCell,
   type TerminalBufferCell,
@@ -244,7 +245,20 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   }, [clearLongPress]);
 
   const copyTerminalSelection = useCallback(async () => {
-    const selection = terminalRef.current?.getSelection() ?? "";
+    const terminal = terminalRef.current;
+    const selectionPosition = terminal?.getSelectionPosition();
+    const selection = terminal && selectionPosition
+      ? terminalSelectedTextFromBuffer({
+        getLine: (row) => {
+          const line = terminal.buffer.active.getLine(row);
+          return line ? { isWrapped: line.isWrapped, text: line.translateToString(true) } : null;
+        },
+        selection: {
+          start: { column: selectionPosition.start.x, row: selectionPosition.start.y },
+          end: { column: selectionPosition.end.x, row: selectionPosition.end.y },
+        },
+      }) || terminal.getSelection()
+      : terminal?.getSelection() ?? "";
     setActionMenu(null);
     if (!selection) return;
 

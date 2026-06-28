@@ -2,6 +2,7 @@ import { describe, expect, test } from "vitest";
 import {
   terminalCellFromPointer,
   terminalHandleLayoutFromSelection,
+  terminalSelectedTextFromBuffer,
   terminalSelectArgsFromEndpoints,
   terminalSelectionContainsCell,
   terminalWordRangeAtCell,
@@ -97,5 +98,35 @@ describe("terminal selection helpers", () => {
     expect(terminalSelectionContainsCell({ cell: { column: 2, row: 12 }, cols: 80, selection })).toBe(true);
     expect(terminalSelectionContainsCell({ cell: { column: 7, row: 12 }, cols: 80, selection })).toBe(true);
     expect(terminalSelectionContainsCell({ cell: { column: 8, row: 12 }, cols: 80, selection })).toBe(false);
+  });
+
+  test("joins wrapped terminal rows without adding newline characters", () => {
+    expect(terminalSelectedTextFromBuffer({
+      getLine: (row) => ({
+        isWrapped: row === 1,
+        text: row === 0 ? "long command " : "continued",
+      }),
+      selection: { start: { column: 0, row: 0 }, end: { column: 9, row: 1 } },
+    })).toBe("long command continued");
+  });
+
+  test("keeps real terminal newlines between unwrapped rows", () => {
+    expect(terminalSelectedTextFromBuffer({
+      getLine: (row) => ({
+        isWrapped: false,
+        text: row === 0 ? "first line" : "second line",
+      }),
+      selection: { start: { column: 0, row: 0 }, end: { column: 11, row: 1 } },
+    })).toBe("first line\nsecond line");
+  });
+
+  test("clips the first and final selected rows by column", () => {
+    expect(terminalSelectedTextFromBuffer({
+      getLine: (row) => ({
+        isWrapped: row === 1,
+        text: row === 0 ? "0123456789" : "abcdefghij",
+      }),
+      selection: { start: { column: 3, row: 0 }, end: { column: 4, row: 1 } },
+    })).toBe("3456789abcd");
   });
 });
