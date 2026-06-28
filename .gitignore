@@ -7,3 +7,7 @@ playwright-report/
 test-results/
 .remote-dev/
 *.log
+
+# local env (uncommitted)
+.env.local
+.env.*.local
