@@ -1,5 +1,5 @@
 import { execFileSync } from "node:child_process";
-import { mkdirSync, mkdtempSync, rmSync, statSync, writeFileSync } from "node:fs";
+import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
 import { describe, expect, test } from "vitest";
@@ -83,10 +83,138 @@ describe("project scripts", () => {
       rmSync(tempRoot, { recursive: true, force: true });
     }
   });
+
+  test("dev.sh --daemon starts the hot-reload server in the background and records its pid", () => {
+    const fixture = createScriptFixture();
+    const runtimeDir = join(fixture.tempRoot, "runtime");
+
+    writeFileSync(
+      join(fixture.binDir, "npx"),
+      [
+        "#!/usr/bin/env bash",
+        'printf "%s\\n" "$0" "$PWD" "$@" > "$SCRIPT_CAPTURE_FILE"',
+        "exit 0",
+        ""
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+
+    try {
+      execFileSync(join(root, "scripts", "dev.sh"), ["--daemon"], {
+        cwd: fixture.callerWorkspace,
+        env: fixture.env(runtimeDir),
+        stdio: "pipe"
+      });
+
+      const [commandPath, executedFrom, ...args] = readEventually(fixture.captureFile).trim().split("\n");
+      expect(commandPath).toBe(join(fixture.binDir, "npx"));
+      expect(executedFrom).toBe(root);
+      expect(args.slice(0, 4)).toEqual(["--no-install", "tsx", "watch", "src/server/cli.ts"]);
+      expect(readFileSync(join(runtimeDir, "dev.pid"), "utf8").trim()).toMatch(/^\d+$/);
+      expect(existsSync(join(runtimeDir, "dev.log"))).toBe(true);
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test("dev.sh --restart stops an existing daemon before starting a new one", () => {
+    const fixture = createScriptFixture();
+    const runtimeDir = join(fixture.tempRoot, "runtime");
+    mkdirSync(runtimeDir);
+    const longRunning = execFileSync("bash", ["-c", "sleep 30 >/dev/null 2>&1 & echo $!"], { encoding: "utf8" }).trim();
+    writeFileSync(join(runtimeDir, "dev.pid"), `${longRunning}\n`);
+
+    writeFileSync(
+      join(fixture.binDir, "npx"),
+      [
+        "#!/usr/bin/env bash",
+        'printf "%s\\n" "$0" "$PWD" "$@" > "$SCRIPT_CAPTURE_FILE"',
+        "exit 0",
+        ""
+      ].join("\n"),
+      { mode: 0o755 }
+    );
+
+    try {
+      execFileSync(join(root, "scripts", "dev.sh"), ["--restart"], {
+        cwd: fixture.callerWorkspace,
+        env: fixture.env(runtimeDir),
+        stdio: "pipe"
+      });
+
+      expect(existsSync(`/proc/${longRunning}`)).toBe(false);
+      expect(readFileSync(join(runtimeDir, "dev.pid"), "utf8").trim()).toMatch(/^\d+$/);
+      expect(readEventually(fixture.captureFile)).toContain("tsx\nwatch\nsrc/server/cli.ts");
+    } finally {
+      fixture.cleanup();
+    }
+  });
+
+  test("dev.sh --stop stops an existing daemon without installing dependencies", () => {
+    const fixture = createScriptFixture();
+    const runtimeDir = join(fixture.tempRoot, "runtime");
+    mkdirSync(runtimeDir);
+    const longRunning = execFileSync("bash", ["-c", "sleep 30 >/dev/null 2>&1 & echo $!"], { encoding: "utf8" }).trim();
+    writeFileSync(join(runtimeDir, "dev.pid"), `${longRunning}\n`);
+
+    try {
+      execFileSync(join(root, "scripts", "dev.sh"), ["--stop"], {
+        cwd: fixture.callerWorkspace,
+        env: fixture.env(runtimeDir, { npmFails: true }),
+        stdio: "pipe"
+      });
+
+      expect(existsSync(`/proc/${longRunning}`)).toBe(false);
+      expect(existsSync(join(runtimeDir, "dev.pid"))).toBe(false);
+      expect(existsSync(fixture.captureFile)).toBe(false);
+    } finally {
+      fixture.cleanup();
+    }
+  });
 });
 
 function valueAfter(args: string[], flag: string): string {
   const index = args.indexOf(flag);
   expect(index).toBeGreaterThanOrEqual(0);
   return args[index + 1];
+}
+
+function createScriptFixture() {
+  const tempRoot = mkdtempSync(join(tmpdir(), "remote-dev-script-"));
+  const callerWorkspace = join(tempRoot, "caller-workspace");
+  const binDir = join(tempRoot, "bin");
+  const captureFile = join(tempRoot, "capture.txt");
+
+  mkdirSync(callerWorkspace);
+  mkdirSync(binDir);
+  writeFileSync(join(binDir, "npm"), "#!/usr/bin/env bash\nexit 0\n", { mode: 0o755 });
+
+  return {
+    binDir,
+    callerWorkspace,
+    captureFile,
+    tempRoot,
+    cleanup() {
+      rmSync(tempRoot, { recursive: true, force: true });
+    },
+    env(runtimeDir: string, options: { npmFails?: boolean } = {}) {
+      if (options.npmFails) {
+        writeFileSync(join(binDir, "npm"), "#!/usr/bin/env bash\nexit 99\n", { mode: 0o755 });
+      }
+      return {
+        ...process.env,
+        PATH: `${binDir}:${process.env.PATH ?? ""}`,
+        REMOTE_DEV_RUN_DIR: runtimeDir,
+        SCRIPT_CAPTURE_FILE: captureFile
+      };
+    }
+  };
+}
+
+function readEventually(path: string): string {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (existsSync(path)) return readFileSync(path, "utf8");
+    execFileSync("sleep", ["0.05"]);
+  }
+  return readFileSync(path, "utf8");
 }
