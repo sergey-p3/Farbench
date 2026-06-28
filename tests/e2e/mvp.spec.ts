@@ -469,6 +469,102 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   expect(contentTouch.after).toBeLessThan(contentTouch.before);
   expect(activeElementLabel).toBe("Terminal input");
 
+  const closedKeyboardScroll = await page.evaluate(() => {
+    const host = document.querySelector(".terminal-host");
+    const viewport = document.querySelector(".terminal-host .xterm-viewport");
+    if (!(host instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
+      throw new Error("Terminal scroll elements not found");
+    }
+    const focusedInput = document.querySelector('[aria-label="Terminal input"]');
+    if (!(focusedInput instanceof HTMLElement)) {
+      throw new Error("Terminal input not found");
+    }
+    focusedInput.blur();
+    viewport.scrollTop = viewport.scrollHeight;
+    const hostBox = host.getBoundingClientRect();
+    const target = document.elementFromPoint(hostBox.left + hostBox.width / 2, hostBox.top + hostBox.height / 2);
+    if (!(target instanceof Element)) {
+      throw new Error("Terminal touch target not found");
+    }
+    const before = viewport.scrollTop;
+    host.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: hostBox.left + hostBox.width / 2,
+      clientY: 500,
+      pointerId: 23,
+      pointerType: "touch",
+    }));
+    const touchInit = (clientY: number) => ({
+      bubbles: true,
+      cancelable: true,
+      touches: [new Touch({ identifier: 3, target, clientY })],
+    });
+    target.dispatchEvent(new TouchEvent("touchstart", touchInit(500)));
+    const move = new TouchEvent("touchmove", touchInit(650));
+    target.dispatchEvent(move);
+    target.dispatchEvent(new TouchEvent("touchend", {
+      bubbles: true,
+      cancelable: true,
+      changedTouches: [new Touch({ identifier: 3, target, clientY: 650 })],
+      touches: [],
+    }));
+    host.dispatchEvent(new PointerEvent("pointerup", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: hostBox.left + hostBox.width / 2,
+      clientY: 650,
+      pointerId: 23,
+      pointerType: "touch",
+    }));
+    return {
+      activeElementLabel: document.activeElement?.getAttribute("aria-label"),
+      after: viewport.scrollTop,
+      before,
+      moveDefaultPrevented: move.defaultPrevented,
+    };
+  });
+
+  expect(closedKeyboardScroll.after).toBeLessThan(closedKeyboardScroll.before);
+  expect(closedKeyboardScroll.moveDefaultPrevented).toBe(true);
+  expect(closedKeyboardScroll.activeElementLabel).not.toBe("Terminal input");
+
+  const explicitTap = await page.evaluate(() => {
+    const host = document.querySelector(".terminal-host");
+    if (!(host instanceof HTMLElement)) {
+      throw new Error("Terminal host not found");
+    }
+    const focusedInput = document.querySelector('[aria-label="Terminal input"]');
+    if (!(focusedInput instanceof HTMLElement)) {
+      throw new Error("Terminal input not found");
+    }
+    focusedInput.blur();
+    const hostBox = host.getBoundingClientRect();
+    host.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: hostBox.left + hostBox.width / 2,
+      clientY: hostBox.top + hostBox.height / 2,
+      pointerId: 17,
+      pointerType: "touch",
+    }));
+    host.dispatchEvent(new PointerEvent("pointerup", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: hostBox.left + hostBox.width / 2,
+      clientY: hostBox.top + hostBox.height / 2,
+      pointerId: 17,
+      pointerType: "touch",
+    }));
+    return document.activeElement?.getAttribute("aria-label");
+  });
+
+  expect(explicitTap).toBe("Terminal input");
+
   const tapDrift = await page.evaluate(() => {
     const host = document.querySelector(".terminal-host");
     const viewport = document.querySelector(".terminal-host .xterm-viewport");

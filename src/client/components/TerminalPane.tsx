@@ -43,6 +43,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const skipNextToolbarClickRef = useRef(false);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const explicitTapStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [isCtrlActive, setIsCtrlActive] = useState(false);
@@ -103,7 +104,6 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     const nextX = Math.max(8, Math.min(x, window.innerWidth - TERMINAL_ACTION_MENU_WIDTH_PX - 8));
     const nextY = Math.max(8, Math.min(y, window.innerHeight - 160));
     setActionMenu({ x: nextX, y: nextY });
-    terminalRef.current?.focus();
   }, [clearLongPress]);
 
   const handleTerminalContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
@@ -113,7 +113,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
 
   const handleTerminalPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     setActionMenu(null);
-    terminalRef.current?.focus();
+    explicitTapStartRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
     if (event.button !== 0 || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
 
     const start = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
@@ -132,9 +132,25 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     if (distance > LONG_PRESS_MOVE_TOLERANCE_PX) {
       clearLongPress();
     }
+    const tapStart = explicitTapStartRef.current;
+    if (!tapStart || tapStart.pointerId !== event.pointerId) return;
+    const tapDistance = Math.hypot(event.clientX - tapStart.x, event.clientY - tapStart.y);
+    if (tapDistance > LONG_PRESS_MOVE_TOLERANCE_PX) {
+      explicitTapStartRef.current = null;
+    }
   }, [clearLongPress]);
 
-  const handleTerminalPointerEnd = useCallback(() => {
+  const cancelTerminalPointerGesture = useCallback(() => {
+    explicitTapStartRef.current = null;
+    clearLongPress();
+  }, [clearLongPress]);
+
+  const handleTerminalPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    const tapStart = explicitTapStartRef.current;
+    if (tapStart?.pointerId === event.pointerId) {
+      terminalRef.current?.focus();
+    }
+    explicitTapStartRef.current = null;
     clearLongPress();
   }, [clearLongPress]);
 
@@ -187,15 +203,15 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
 
     document.addEventListener("keydown", handleKeyDown, true);
     document.addEventListener("pointerdown", handlePointerDown);
-    window.addEventListener("resize", handleTerminalPointerEnd);
-    window.addEventListener("scroll", handleTerminalPointerEnd, true);
+    window.addEventListener("resize", cancelTerminalPointerGesture);
+    window.addEventListener("scroll", cancelTerminalPointerGesture, true);
     return () => {
       document.removeEventListener("keydown", handleKeyDown, true);
       document.removeEventListener("pointerdown", handlePointerDown);
-      window.removeEventListener("resize", handleTerminalPointerEnd);
-      window.removeEventListener("scroll", handleTerminalPointerEnd, true);
+      window.removeEventListener("resize", cancelTerminalPointerGesture);
+      window.removeEventListener("scroll", cancelTerminalPointerGesture, true);
     };
-  }, [actionMenu, handleTerminalPointerEnd]);
+  }, [actionMenu, cancelTerminalPointerGesture]);
 
   useEffect(() => {
     setStatus(null);
@@ -310,7 +326,6 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       if (touchY !== null) {
         pendingTouchScrollRows = 0;
         touchMomentum.begin(touchY);
-        terminal.focus();
         return;
       }
       touchMomentum.cancel();
@@ -320,6 +335,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       const nextY = touchScrollY(event.touches);
       if (nextY === null) return;
       if (!touchMomentum.move(nextY)) return;
+      explicitTapStartRef.current = null;
       clearLongPress();
       if (event.cancelable) {
         event.preventDefault();
@@ -336,11 +352,11 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       activePointerId = event.pointerId;
       pendingPointerScrollRows = 0;
       pointerMomentum.begin(event.clientY);
-      terminal.focus();
     };
     const movePointerScroll = (event: PointerEvent) => {
       if (activePointerId !== event.pointerId) return;
       if (!pointerMomentum.move(event.clientY)) return;
+      explicitTapStartRef.current = null;
       lastPointerScrollAt = performance.now();
       clearLongPress();
       if (event.cancelable) {
@@ -498,9 +514,9 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       <div
         className="terminal-stage"
         onContextMenu={handleTerminalContextMenu}
-        onPointerCancel={handleTerminalPointerEnd}
+        onPointerCancel={cancelTerminalPointerGesture}
         onPointerDown={handleTerminalPointerDown}
-        onPointerLeave={handleTerminalPointerEnd}
+        onPointerLeave={cancelTerminalPointerGesture}
         onPointerMove={handleTerminalPointerMove}
         onPointerUp={handleTerminalPointerEnd}
       >
