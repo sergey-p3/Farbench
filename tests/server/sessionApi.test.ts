@@ -1,7 +1,7 @@
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import type { Server } from "node:http";
+import type { IncomingMessage, Server, ServerResponse } from "node:http";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../../src/server/http/createApp.js";
 import type { ServerConfig } from "../../src/server/config.js";
@@ -52,9 +52,28 @@ describe("session API", () => {
     expect(agent.killedTmuxNames).toEqual([]);
     expect(db.getSession(session.id)?.status).toBe("starting");
   });
+
+  it("serves the Vite-transformed client shell when a dev client is provided", async () => {
+    const { baseUrl } = await startApp({
+      middlewares: (_req, _res, next) => next(),
+      async transformIndexHtml(path, html) {
+        return `${html}\n<!-- transformed:${path} -->`;
+      },
+    });
+
+    const response = await fetch(`${baseUrl}/some/client/route`);
+
+    expect(response.status).toBe(200);
+    expect(await response.text()).toContain("<!-- transformed:/some/client/route -->");
+  });
 });
 
-async function startApp() {
+interface FakeDevClient {
+  middlewares: (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => void;
+  transformIndexHtml: (path: string, html: string) => Promise<string>;
+}
+
+async function startApp(devClient?: FakeDevClient) {
   dir = mkdtempSync(join(tmpdir(), "remote-dev-session-api-"));
   const db = createDatabase(join(dir, "state.db"));
   const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
@@ -67,7 +86,7 @@ async function startApp() {
     dataDir: dir,
     authToken: "dev-password",
   };
-  const app = await createApp({ config, db, agent });
+  const app = await createApp({ config, db, agent, devClient });
   servers.push(app);
   const port = await listen(app);
   const baseUrl = `http://127.0.0.1:${port}`;

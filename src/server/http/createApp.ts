@@ -1,5 +1,7 @@
 import { existsSync } from "node:fs";
+import { readFile } from "node:fs/promises";
 import { createServer, request as httpRequest, type IncomingHttpHeaders, type Server } from "node:http";
+import type { IncomingMessage, ServerResponse } from "node:http";
 import { dirname, join, resolve } from "node:path";
 import { fileURLToPath } from "node:url";
 import express, { type NextFunction, type Request, type Response } from "express";
@@ -16,9 +18,17 @@ interface CreateAppInput {
   config: ServerConfig;
   db: MetadataDb;
   agent?: AgentGateway;
+  devClient?: DevClient;
 }
 
 type AsyncHandler = (req: Request, res: Response, next: NextFunction) => Promise<void>;
+type DevMiddleware = (req: IncomingMessage, res: ServerResponse, next: (error?: unknown) => void) => void;
+
+interface DevClient {
+  middlewares: DevMiddleware;
+  transformIndexHtml: (path: string, html: string) => Promise<string>;
+  close?: () => Promise<void>;
+}
 
 function httpError(status: number, message: string): Error & { status: number } {
   return Object.assign(new Error(message), { status });
@@ -90,9 +100,15 @@ function isHtmlResponse(headers: IncomingHttpHeaders): boolean {
   return value.toLowerCase().includes("text/html");
 }
 
-export async function createApp({ config, db, agent = new LocalAgent() }: CreateAppInput): Promise<Server> {
+export async function createApp({ config, db, agent = new LocalAgent(), devClient: injectedDevClient }: CreateAppInput): Promise<Server> {
   const app = express();
   const server = createServer(app);
+  const devClient = await createDevClient(server, injectedDevClient);
+  if (devClient?.close) {
+    server.once("close", () => {
+      void devClient.close?.();
+    });
+  }
   const auth = createAuth(config.authToken);
   const previews = new Map<string, PortPreview>();
 
@@ -326,6 +342,16 @@ export async function createApp({ config, db, agent = new LocalAgent() }: Create
     req.pipe(upstream);
   });
 
+  if (devClient) {
+    const clientRoot = resolve(process.cwd(), "src/client");
+    const indexPath = join(clientRoot, "index.html");
+    app.use((req, res, next) => devClient.middlewares(req, res, next));
+    app.get("*", asyncHandler(async (req, res) => {
+      const html = await readFile(indexPath, "utf8");
+      res.type("html").send(await devClient.transformIndexHtml(req.originalUrl, html));
+    }));
+  }
+
   const staticRoot = resolve(dirname(fileURLToPath(import.meta.url)), "../../client");
   if (existsSync(staticRoot)) {
     app.use(express.static(staticRoot));
@@ -359,4 +385,19 @@ export async function createApp({ config, db, agent = new LocalAgent() }: Create
   });
 
   return server;
+}
+
+async function createDevClient(server: Server, injected?: DevClient): Promise<DevClient | null> {
+  if (injected) return injected;
+  if (process.env.REMOTE_DEV_VITE !== "1") return null;
+
+  const { createServer: createViteServer } = await import("vite");
+  return createViteServer({
+    configFile: resolve(process.cwd(), "vite.config.ts"),
+    appType: "custom",
+    server: {
+      hmr: { server },
+      middlewareMode: true,
+    },
+  });
 }

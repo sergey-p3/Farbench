@@ -4,6 +4,7 @@ Remote Development is a browser-first control plane for durable terminal coding-
 
 ## Run
 
+
 ```sh
 npm install
 npm run build
@@ -25,12 +26,12 @@ HOST=0.0.0.0 AUTH_TOKEN=<choose-a-secret> ./scripts/run.sh
 Available scripts:
 
 - `./scripts/run.sh` installs dependencies, builds, and starts the built server.
-- `./scripts/dev.sh` installs dependencies, builds, and starts the built server with LAN-friendly defaults.
+- `./scripts/dev.sh` installs dependencies and starts a hot-reloading development server with LAN-friendly defaults.
 - `./scripts/test.sh` installs dependencies and runs unit/integration tests.
 - `./scripts/e2e.sh` installs dependencies and runs Playwright E2E tests.
 - `./scripts/verify.sh` installs dependencies and runs typecheck, tests, build, and E2E tests.
 
-`run.sh` and `dev.sh` default to port `7000`, the directory where you launched the script as `WORKSPACE`, and a random 5-8 character workspace name. `dev.sh` binds to `0.0.0.0` and passes `AUTH_TOKEN=dev-password` by default; override with `HOST`, `PORT`, `WORKSPACE`, `WORKSPACE_NAME`, or `AUTH_TOKEN` when needed.
+`run.sh` defaults to port `7000`; `dev.sh` defaults to port `9154`. Both use the directory where you launched the script as `WORKSPACE` and a random 5-8 character workspace name. `dev.sh` binds to `0.0.0.0` and passes `AUTH_TOKEN=dev-password` by default; override with `HOST`, `PORT`, `WORKSPACE`, `WORKSPACE_NAME`, or `AUTH_TOKEN` when needed.
 
 Loopback development access uses the default token:
 

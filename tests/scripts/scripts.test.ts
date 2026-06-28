@@ -18,7 +18,7 @@ describe("project scripts", () => {
 
   test.each([
     ["run.sh", "node", "127.0.0.1", "7000", null],
-    ["dev.sh", "node", "0.0.0.0", "9154", "dev-password"]
+    ["dev.sh", "npx", "0.0.0.0", "9154", "dev-password"]
   ])("%s defaults to expected host, port, caller workspace, and random workspace name", (
     scriptName,
     capturedCommand,
@@ -62,7 +62,14 @@ describe("project scripts", () => {
 
       expect(commandPath).toBe(join(binDir, capturedCommand));
       expect(executedFrom).toBe(root);
-      expect(args[0]).toBe("dist/server/cli.js");
+      if (scriptName === "dev.sh") {
+        expect(args.slice(0, 4)).toEqual(["--no-install", "tsx", "watch", "src/server/cli.ts"]);
+        args.splice(0, 4);
+      } else {
+        expect(args[0]).toBe("dist/server/cli.js");
+        args.splice(0, 1);
+      }
+      expect(args[0]).toBe("serve");
       expect(valueAfter(args, "--host")).toBe(expectedHost);
       expect(valueAfter(args, "--port")).toBe(expectedPort);
       expect(valueAfter(args, "--workspace")).toBe(callerWorkspace);

@@ -18,7 +18,7 @@ DATA_DIR="${DATA_DIR:-}"
 WORKSPACE_NAME="${WORKSPACE_NAME:-$(random_workspace_name)}"
 
 npm install
-npm run build
+export REMOTE_DEV_VITE="${REMOTE_DEV_VITE:-1}"
 
 args=(serve --host "$HOST" --port "$PORT" --workspace "$WORKSPACE")
 
@@ -32,4 +32,4 @@ fi
 
 args+=(--workspace-name "$WORKSPACE_NAME")
 
-exec node dist/server/cli.js "${args[@]}"
+exec npx --no-install tsx watch src/server/cli.ts "${args[@]}"
