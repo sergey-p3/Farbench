@@ -252,6 +252,21 @@ export async function createApp({ config, db, agent = new LocalAgent() }: Create
     }),
   );
 
+  app.get(
+    "/api/workspaces/:workspaceId/git/file-diff",
+    asyncHandler(async (req, res) => {
+      const workspace = getWorkspace(req.params.workspaceId);
+      const path = typeof req.query.path === "string" ? req.query.path.trim() : "";
+      if (!path) {
+        res.status(400).json({ error: "missing path" });
+        return;
+      }
+      const diff = await agent.gitFileDiff(workspace.rootPath, path);
+      recordAudit("git.file_diff", { workspaceId: workspace.id, path });
+      res.json(diff);
+    }),
+  );
+
   app.post(
     "/api/workspaces/:workspaceId/previews",
     asyncHandler(async (req, res) => {

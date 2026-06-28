@@ -1,6 +1,7 @@
 import type {
   FileReadResponse,
   FileResource,
+  GitFileDiffResponse,
   GitStatusResponse,
   PortPreview,
   SessionType,
@@ -26,6 +27,7 @@ export interface AgentGateway {
   writeFile(input: WriteFileInput): Promise<FileReadResponse>;
   gitStatus(rootPath: string): Promise<GitStatusResponse>;
   gitDiff(rootPath: string, path: string): Promise<string>;
+  gitFileDiff(rootPath: string, path: string): Promise<GitFileDiffResponse>;
   createTerminalSession(input: CreateSessionInput): Promise<{ tmuxName: string }>;
   captureScrollback(tmuxName: string): Promise<string>;
   terminalSessionExists(tmuxName: string): Promise<boolean>;

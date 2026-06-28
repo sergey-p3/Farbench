@@ -42,6 +42,88 @@ afterEach(async () => {
 });
 
 describe("LocalAgent git integration", () => {
+  it("returns structured text content and patch for an unstaged tracked file", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    git(["init"], dir);
+    git(["config", "user.email", "dev@example.com"], dir);
+    git(["config", "user.name", "Dev"], dir);
+    writeFileSync(join(dir, "app.txt"), "one\n");
+    git(["add", "app.txt"], dir);
+    git(["commit", "-m", "initial"], dir);
+
+    writeFileSync(join(dir, "app.txt"), "two\n");
+
+    const agent = new LocalAgent();
+    const diff = await agent.gitFileDiff(dir, "app.txt");
+
+    expect(diff).toMatchObject({
+      path: "app.txt",
+      kind: "text",
+      original: "one\n",
+      current: "two\n",
+      message: null,
+    });
+    expect(diff.patch).toContain("-one");
+    expect(diff.patch).toContain("+two");
+  });
+
+  it("returns structured text content for a staged-only tracked file", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    git(["init"], dir);
+    git(["config", "user.email", "dev@example.com"], dir);
+    git(["config", "user.name", "Dev"], dir);
+    writeFileSync(join(dir, "app.txt"), "one\n");
+    git(["add", "app.txt"], dir);
+    git(["commit", "-m", "initial"], dir);
+
+    writeFileSync(join(dir, "app.txt"), "two\n");
+    git(["add", "app.txt"], dir);
+
+    const agent = new LocalAgent();
+    const diff = await agent.gitFileDiff(dir, "app.txt");
+
+    expect(diff).toMatchObject({
+      path: "app.txt",
+      kind: "text",
+      original: "one\n",
+      current: "two\n",
+      message: null,
+    });
+  });
+
+  it("returns structured text content for added and deleted files", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    git(["init"], dir);
+    git(["config", "user.email", "dev@example.com"], dir);
+    git(["config", "user.name", "Dev"], dir);
+    writeFileSync(join(dir, "deleted.txt"), "gone\n");
+    git(["add", "deleted.txt"], dir);
+    git(["commit", "-m", "initial"], dir);
+
+    writeFileSync(join(dir, "added.txt"), "new\n");
+    git(["add", "added.txt"], dir);
+    git(["rm", "deleted.txt"], dir);
+
+    const agent = new LocalAgent();
+    const added = await agent.gitFileDiff(dir, "added.txt");
+    const deleted = await agent.gitFileDiff(dir, "deleted.txt");
+
+    expect(added).toMatchObject({
+      path: "added.txt",
+      kind: "text",
+      original: "",
+      current: "new\n",
+      message: null,
+    });
+    expect(deleted).toMatchObject({
+      path: "deleted.txt",
+      kind: "text",
+      original: "gone\n",
+      current: "",
+      message: null,
+    });
+  });
+
   it("reports tracked file changes and returns a path-scoped diff", async () => {
     dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
     git(["init"], dir);

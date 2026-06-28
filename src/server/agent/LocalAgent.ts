@@ -1,11 +1,18 @@
 import { createHash } from "node:crypto";
 import { execFile } from "node:child_process";
 import { constants, type Dirent, type Stats } from "node:fs";
-import { open, readdir, stat } from "node:fs/promises";
+import { open, readFile, readdir, stat } from "node:fs/promises";
 import { join } from "node:path";
 import { promisify, TextDecoder } from "node:util";
 import { nanoid } from "nanoid";
-import type { FileReadResponse, FileResource, GitStatusResponse, PortPreview } from "../../shared/types.js";
+import type {
+  FileReadResponse,
+  FileResource,
+  GitFileDiffKind,
+  GitFileDiffResponse,
+  GitStatusResponse,
+  PortPreview,
+} from "../../shared/types.js";
 import type { AgentGateway, CreateSessionInput, WriteFileInput } from "./AgentGateway.js";
 import { resolveWorkspacePath } from "../pathPolicy.js";
 import { TmuxManager } from "../terminal/TmuxManager.js";
@@ -18,6 +25,15 @@ const noFollowReadWriteFlags = constants.O_RDWR | constants.O_NOFOLLOW;
 const noFollowDirectoryFlags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY;
 const maxTextFileBytes = 1_000_000;
 const binarySampleBytes = 8_192;
+
+class GitFileDiffContentError extends Error {
+  constructor(
+    readonly kind: GitFileDiffKind,
+    message: string,
+  ) {
+    super(message);
+  }
+}
 
 function isLikelyBinary(buffer: Buffer): boolean {
   if (buffer.includes(0)) return true;
@@ -323,6 +339,98 @@ export class LocalAgent implements AgentGateway {
       maxBuffer: 5_000_000,
     });
     return cached.stdout;
+  }
+
+  async gitFileDiff(rootPath: string, path: string): Promise<GitFileDiffResponse> {
+    const resolved = resolveWorkspacePath(rootPath, path);
+    let patch = "";
+    try {
+      patch = await this.gitDiff(rootPath, path);
+      const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1", "--", resolved.relativePath], {
+        cwd: rootPath,
+      });
+      const statusLine = stdout.split("\n").find(Boolean);
+      const indexStatus = statusLine?.[0] ?? " ";
+      const worktreeStatus = statusLine?.[1] ?? " ";
+      const hasUnstagedChanges = worktreeStatus !== " " && worktreeStatus !== "?";
+      const hasStagedChanges = indexStatus !== " " && indexStatus !== "?";
+      const isUntracked = indexStatus === "?" && worktreeStatus === "?";
+
+      let original: string;
+      let current: string;
+      if (isUntracked) {
+        original = "";
+        current = await this.readWorkingTreeDiffText(resolved.absolutePath);
+      } else if (hasUnstagedChanges) {
+        original = indexStatus === "A" ? "" : await this.readGitObjectDiffText(rootPath, `:${resolved.relativePath}`);
+        current = worktreeStatus === "D" ? "" : await this.readWorkingTreeDiffText(resolved.absolutePath);
+      } else if (hasStagedChanges) {
+        original = indexStatus === "A" ? "" : await this.readGitObjectDiffText(rootPath, `HEAD:${resolved.relativePath}`);
+        current = indexStatus === "D" ? "" : await this.readGitObjectDiffText(rootPath, `:${resolved.relativePath}`);
+      } else {
+        original = await this.readGitObjectDiffText(rootPath, `HEAD:${resolved.relativePath}`);
+        current = await this.readWorkingTreeDiffText(resolved.absolutePath);
+      }
+
+      return {
+        path: resolved.relativePath,
+        kind: "text",
+        original,
+        current,
+        patch,
+        message: null,
+      };
+    } catch (error) {
+      const fallback = this.gitFileDiffFallbackKind(error);
+      return {
+        path: resolved.relativePath,
+        kind: fallback.kind,
+        original: "",
+        current: "",
+        patch,
+        message: fallback.message,
+      };
+    }
+  }
+
+  private gitFileDiffFallbackKind(error: unknown): { kind: GitFileDiffKind; message: string } {
+    if (error instanceof GitFileDiffContentError) {
+      return { kind: error.kind, message: error.message };
+    }
+    if (
+      error instanceof RangeError ||
+      (error instanceof Error && "code" in error && error.code === "ERR_CHILD_PROCESS_STDIO_MAXBUFFER")
+    ) {
+      return { kind: "too-large", message: "File is too large to diff as text" };
+    }
+    return { kind: "unavailable", message: "File diff is unavailable" };
+  }
+
+  private async readGitObjectDiffText(rootPath: string, revision: string): Promise<string> {
+    const { stdout } = await execFileAsync("git", ["show", revision], {
+      cwd: rootPath,
+      encoding: "buffer",
+      maxBuffer: maxTextFileBytes + 1,
+    });
+    return this.diffTextFromBuffer(Buffer.isBuffer(stdout) ? stdout : Buffer.from(stdout));
+  }
+
+  private async readWorkingTreeDiffText(absolutePath: string): Promise<string> {
+    const stats = await stat(absolutePath);
+    if (stats.size > maxTextFileBytes) {
+      throw new GitFileDiffContentError("too-large", "File is too large to diff as text");
+    }
+    return this.diffTextFromBuffer(await readFile(absolutePath));
+  }
+
+  private diffTextFromBuffer(buffer: Buffer): string {
+    if (buffer.byteLength > maxTextFileBytes) {
+      throw new GitFileDiffContentError("too-large", "File is too large to diff as text");
+    }
+    if (isLikelyBinary(buffer)) {
+      throw new GitFileDiffContentError("binary", "Binary files cannot be diffed as text");
+    }
+    return buffer.toString("utf8");
   }
 
   async createTerminalSession(input: CreateSessionInput): Promise<{ tmuxName: string }> {
