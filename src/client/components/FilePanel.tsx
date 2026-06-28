@@ -2,6 +2,7 @@ import { Editor, type OnMount } from "@monaco-editor/react";
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { FileResource, Workspace } from "../../shared/types.js";
 import { ApiError, api, isUnauthorized } from "../api.js";
+import { createMomentumScrollGesture } from "../scrollMomentum.js";
 
 interface FilePanelProps {
   workspace: Workspace | null;
@@ -65,40 +66,47 @@ export function FilePanel({ workspace, onUnauthorized }: FilePanelProps) {
     const editorHost = editorHostRef.current;
     if (!editorHost) return;
 
-    let lastTouchY: number | null = null;
+    const touchMomentum = createMomentumScrollGesture({
+      scrollBy: (deltaY) => {
+        const editor = editorRef.current;
+        if (!editor) return;
+        editor.setScrollTop(editor.getScrollTop() + deltaY);
+      },
+      viewportHeightPx: () => editorRef.current?.getLayoutInfo().height ?? editorHost.clientHeight,
+    });
     const beginTouchScroll = (event: TouchEvent) => {
-      lastTouchY = touchScrollY(event.touches);
-    };
-    const moveTouchScroll = (event: TouchEvent) => {
-      if (lastTouchY === null) return;
-      const nextY = touchScrollY(event.touches);
-      if (nextY === null) return;
-      const editor = editorRef.current;
-      if (!editor) {
-        lastTouchY = nextY;
+      const touchY = touchScrollY(event.touches);
+      if (touchY === null) {
+        touchMomentum.cancel();
         return;
       }
-
-      const deltaY = lastTouchY - nextY;
-      editor.setScrollTop(editor.getScrollTop() + deltaY);
-      lastTouchY = nextY;
+      touchMomentum.begin(touchY);
+    };
+    const moveTouchScroll = (event: TouchEvent) => {
+      const nextY = touchScrollY(event.touches);
+      if (nextY === null) return;
+      if (!touchMomentum.move(nextY)) return;
       if (event.cancelable) {
         event.preventDefault();
       }
     };
     const resetTouchScroll = () => {
-      lastTouchY = null;
+      touchMomentum.end();
+    };
+    const cancelTouchScroll = () => {
+      touchMomentum.cancel();
     };
 
     editorHost.addEventListener("touchstart", beginTouchScroll, { capture: true, passive: true });
     editorHost.addEventListener("touchmove", moveTouchScroll, { capture: true, passive: false });
     editorHost.addEventListener("touchend", resetTouchScroll, true);
-    editorHost.addEventListener("touchcancel", resetTouchScroll, true);
+    editorHost.addEventListener("touchcancel", cancelTouchScroll, true);
     return () => {
+      touchMomentum.cancel();
       editorHost.removeEventListener("touchstart", beginTouchScroll, true);
       editorHost.removeEventListener("touchmove", moveTouchScroll, true);
       editorHost.removeEventListener("touchend", resetTouchScroll, true);
-      editorHost.removeEventListener("touchcancel", resetTouchScroll, true);
+      editorHost.removeEventListener("touchcancel", cancelTouchScroll, true);
     };
   }, [selectedPath]);
 
