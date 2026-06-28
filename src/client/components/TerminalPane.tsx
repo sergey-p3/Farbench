@@ -3,6 +3,8 @@ import { FitAddon } from "xterm-addon-fit";
 import { Terminal } from "xterm";
 import { api, isUnauthorized } from "../api.js";
 import { createMomentumScrollGesture } from "../scrollMomentum.js";
+import { createTerminalGestureOwner } from "../terminalGestureOwner.js";
+import { scrollTerminalViewportByPixels } from "../terminalPixelScroller.js";
 import { terminalControlSequence, terminalKeyLabels, type TerminalToolbarKey } from "../terminalKeys.js";
 import { terminalKeyboardChromeInset } from "../terminalViewport.js";
 
@@ -282,30 +284,15 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     const resizeObserver = new ResizeObserver(fitAndResize);
     resizeObserver.observe(containerRef.current);
 
-    let pendingTouchScrollRows = 0;
-    let activePointerId: number | null = null;
-    let pendingPointerScrollRows = 0;
-    let lastPointerScrollAt = 0;
+    const gestureOwner = createTerminalGestureOwner();
     const touchScrollTarget = containerRef.current;
-    const scrollTerminalByPixels = (deltaY: number, pendingRows: number): number => {
+    const scrollTerminalByPixels = (deltaY: number): void => {
       const viewport = touchScrollTarget.querySelector(".xterm-viewport");
-      if (!(viewport instanceof HTMLElement)) return pendingRows;
-
-      const rowHeight = Math.max(1, terminal.element?.querySelector(".xterm-rows > div")?.getBoundingClientRect().height ?? 15);
-      const nextPendingRows = pendingRows + deltaY / rowHeight;
-      const rowsToScroll = Math.trunc(nextPendingRows);
-      const before = viewport.scrollTop;
-      if (rowsToScroll !== 0) {
-        terminal.scrollLines(rowsToScroll);
-      }
-      if (viewport.scrollTop === before) {
-        viewport.scrollTop += deltaY;
-      }
-      return rowsToScroll === 0 ? nextPendingRows : nextPendingRows - rowsToScroll;
+      if (viewport instanceof HTMLElement) scrollTerminalViewportByPixels(viewport, deltaY);
     };
     const touchMomentum = createMomentumScrollGesture({
       scrollBy: (deltaY) => {
-        pendingTouchScrollRows = scrollTerminalByPixels(deltaY, pendingTouchScrollRows);
+        scrollTerminalByPixels(deltaY);
       },
       viewportHeightPx: () => {
         const viewport = touchScrollTarget.querySelector(".xterm-viewport");
@@ -314,7 +301,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     });
     const pointerMomentum = createMomentumScrollGesture({
       scrollBy: (deltaY) => {
-        pendingPointerScrollRows = scrollTerminalByPixels(deltaY, pendingPointerScrollRows);
+        scrollTerminalByPixels(deltaY);
       },
       viewportHeightPx: () => {
         const viewport = touchScrollTarget.querySelector(".xterm-viewport");
@@ -322,16 +309,17 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       },
     });
     const beginTouchScroll = (event: TouchEvent) => {
+      if (!gestureOwner.beginTouch()) return;
       const touchY = touchScrollY(event.touches);
       if (touchY !== null) {
-        pendingTouchScrollRows = 0;
         touchMomentum.begin(touchY);
         return;
       }
       touchMomentum.cancel();
+      gestureOwner.endTouch();
     };
     const moveTouchScroll = (event: TouchEvent) => {
-      if (performance.now() - lastPointerScrollAt < 80) return;
+      if (!gestureOwner.canMoveTouch()) return;
       const nextY = touchScrollY(event.touches);
       if (nextY === null) return;
       if (!touchMomentum.move(nextY)) return;
@@ -343,34 +331,33 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     };
     const resetTouchScroll = () => {
       touchMomentum.end();
+      gestureOwner.endTouch();
     };
     const cancelTouchScroll = () => {
       touchMomentum.cancel();
+      gestureOwner.endTouch();
     };
     const beginPointerScroll = (event: PointerEvent) => {
       if (event.button !== 0 || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
-      activePointerId = event.pointerId;
-      pendingPointerScrollRows = 0;
+      if (!gestureOwner.beginPointer(event.pointerId)) return;
+      touchMomentum.cancel();
       pointerMomentum.begin(event.clientY);
     };
     const movePointerScroll = (event: PointerEvent) => {
-      if (activePointerId !== event.pointerId) return;
+      if (!gestureOwner.canMovePointer(event.pointerId)) return;
       if (!pointerMomentum.move(event.clientY)) return;
       explicitTapStartRef.current = null;
-      lastPointerScrollAt = performance.now();
       clearLongPress();
       if (event.cancelable) {
         event.preventDefault();
       }
     };
     const resetPointerScroll = (event: PointerEvent) => {
-      if (activePointerId !== event.pointerId) return;
-      activePointerId = null;
+      if (!gestureOwner.endPointer(event.pointerId)) return;
       pointerMomentum.end();
     };
     const cancelPointerScroll = (event: PointerEvent) => {
-      if (activePointerId !== event.pointerId) return;
-      activePointerId = null;
+      if (!gestureOwner.endPointer(event.pointerId)) return;
       pointerMomentum.cancel();
     };
     touchScrollTarget.addEventListener("touchstart", beginTouchScroll, { capture: true, passive: true });
@@ -473,6 +460,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       resizeObserver.disconnect();
       touchMomentum.cancel();
       pointerMomentum.cancel();
+      gestureOwner.cancel();
       touchScrollTarget.removeEventListener("touchstart", beginTouchScroll, true);
       touchScrollTarget.removeEventListener("touchmove", moveTouchScroll, true);
       touchScrollTarget.removeEventListener("touchend", resetTouchScroll, true);
