@@ -59,6 +59,25 @@ function isSameFileIdentity(a: { dev: number; ino: number }, b: { dev: number; i
   return a.dev === b.dev && a.ino === b.ino;
 }
 
+function unifiedAddedFilePatch(path: string, content: string): string {
+  const lines = content.length === 0 ? [] : content.endsWith("\n") ? content.slice(0, -1).split("\n") : content.split("\n");
+  const lineCount = lines.length;
+  const hunkRange = lineCount === 1 ? "+1" : `+1,${lineCount}`;
+  const patchLines = [
+    `diff --git a/${path} b/${path}`,
+    "new file mode 100644",
+    "index 0000000..0000000",
+    "--- /dev/null",
+    `+++ b/${path}`,
+    `@@ -0,0 ${hunkRange} @@`,
+    ...lines.map((line) => `+${line}`),
+  ];
+  if (content.length > 0 && !content.endsWith("\n")) {
+    patchLines.push("\\ No newline at end of file");
+  }
+  return `${patchLines.join("\n")}\n`;
+}
+
 function fileIdentityKey(stats: { dev: number; ino: number }): string {
   return `${stats.dev}:${stats.ino}`;
 }
@@ -305,7 +324,7 @@ export class LocalAgent implements AgentGateway {
   }
 
   async gitStatus(rootPath: string): Promise<GitStatusResponse> {
-    const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1"], { cwd: rootPath });
+    const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1", "-uall"], { cwd: rootPath });
     return {
       changes: stdout
         .split("\n")
@@ -316,11 +335,12 @@ export class LocalAgent implements AgentGateway {
           const rawPath = line.slice(3);
           const path = rawPath.includes(" -> ") ? rawPath.slice(rawPath.indexOf(" -> ") + 4) : rawPath;
           const staged = indexStatus !== " " && indexStatus !== "?";
+          const untracked = indexStatus === "?" && worktreeStatus === "?";
           return {
             path,
             status: `${indexStatus}${worktreeStatus}`.trim(),
             staged,
-            diffAvailable: staged || (worktreeStatus !== " " && worktreeStatus !== "?"),
+            diffAvailable: staged || untracked || (worktreeStatus !== " " && worktreeStatus !== "?"),
           };
         }),
     };
@@ -338,7 +358,18 @@ export class LocalAgent implements AgentGateway {
       cwd: rootPath,
       maxBuffer: 5_000_000,
     });
-    return cached.stdout;
+    if (cached.stdout) return cached.stdout;
+
+    const { stdout: statusStdout } = await execFileAsync("git", ["status", "--porcelain=v1", "--", resolved.relativePath], {
+      cwd: rootPath,
+    });
+    const statusLine = statusStdout.split("\n").find(Boolean);
+    if (statusLine?.startsWith("?? ")) {
+      const current = await this.readWorkingTreeDiffText(resolved.absolutePath);
+      return unifiedAddedFilePatch(resolved.relativePath, current);
+    }
+
+    return "";
   }
 
   async gitFileDiff(rootPath: string, path: string): Promise<GitFileDiffResponse> {

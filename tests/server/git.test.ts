@@ -191,6 +191,36 @@ describe("LocalAgent git integration", () => {
     expect(diff).toContain("+two");
   });
 
+  it("marks untracked text files as diffable and returns added-line patch content", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    git(["init"], dir);
+    git(["config", "user.email", "dev@example.com"], dir);
+    git(["config", "user.name", "Dev"], dir);
+    writeFileSync(join(dir, "new.txt"), "first\nsecond\n");
+
+    const agent = new LocalAgent();
+    const status = await agent.gitStatus(dir);
+    const newChange = status.changes.find((change) => change.path === "new.txt");
+    const diff = await agent.gitFileDiff(dir, "new.txt");
+
+    expect(newChange).toMatchObject({
+      path: "new.txt",
+      status: "??",
+      staged: false,
+      diffAvailable: true,
+    });
+    expect(diff).toMatchObject({
+      path: "new.txt",
+      kind: "text",
+      original: "",
+      current: "first\nsecond\n",
+      message: null,
+    });
+    expect(diff.patch).toContain("@@ -0,0 +1,2 @@");
+    expect(diff.patch).toContain("+first");
+    expect(diff.patch).toContain("+second");
+  });
+
   it("returns a stable bad request when git diff path is missing", async () => {
     dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
     const db = createDatabase(join(dir, "state.db"));
