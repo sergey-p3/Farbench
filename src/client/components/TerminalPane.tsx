@@ -2,6 +2,7 @@ import { useCallback, useEffect, useRef, useState } from "react";
 import { FitAddon } from "xterm-addon-fit";
 import { Terminal } from "xterm";
 import { api, isUnauthorized } from "../api.js";
+import { copyTextToClipboard } from "../clipboard.js";
 import { createMomentumScrollGesture } from "../scrollMomentum.js";
 import { createTerminalGestureOwner } from "../terminalGestureOwner.js";
 import { scrollTerminalViewportByPixels } from "../terminalPixelScroller.js";
@@ -247,9 +248,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     setActionMenu(null);
     if (!selection) return;
 
-    try {
-      await navigator.clipboard.writeText(selection);
-    } catch {
+    if (!(await copyTextToClipboard(selection))) {
       setStatus("Unable to copy terminal selection.");
     }
   }, []);
