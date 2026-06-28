@@ -143,8 +143,12 @@ test("owner uses mobile focused item shell and restores last active item", async
     await closeTopMenu(page);
     await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
     await page.getByRole("button", { name: /app\.txt/ }).click();
-    await expect(page.getByLabel("Git diff").getByText("-original line")).toBeVisible();
-    await expect(page.getByLabel("Git diff").getByText("+changed line")).toBeVisible();
+    await expect(page.getByRole("group", { name: "Diff view mode" })).toBeVisible();
+    await expect(page.getByRole("button", { name: "Copy location" })).toBeVisible();
+    await expect(page.getByLabel("Git diff").getByText("original line")).toBeVisible();
+    await expect(page.getByLabel("Git diff").getByText("changed line")).toBeVisible();
+    await page.getByRole("button", { name: "Line by line" }).click();
+    await expect(page.getByRole("button", { name: "Line by line" })).toHaveAttribute("aria-pressed", "true");
 
     await openTopMenu(page);
     await page.getByRole("button", { name: "Create item" }).click();
