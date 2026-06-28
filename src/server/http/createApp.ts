@@ -256,8 +256,8 @@ export async function createApp({ config, db, agent = new LocalAgent() }: Create
     "/api/workspaces/:workspaceId/git/file-diff",
     asyncHandler(async (req, res) => {
       const workspace = getWorkspace(req.params.workspaceId);
-      const path = typeof req.query.path === "string" ? req.query.path.trim() : "";
-      if (!path) {
+      const path = typeof req.query.path === "string" ? req.query.path : "";
+      if (!path.trim()) {
         res.status(400).json({ error: "missing path" });
         return;
       }

@@ -362,7 +362,7 @@ export class LocalAgent implements AgentGateway {
         original = "";
         current = await this.readWorkingTreeDiffText(resolved.absolutePath);
       } else if (hasUnstagedChanges) {
-        original = indexStatus === "A" ? "" : await this.readGitObjectDiffText(rootPath, `:${resolved.relativePath}`);
+        original = await this.readGitObjectDiffText(rootPath, `:${resolved.relativePath}`);
         current = worktreeStatus === "D" ? "" : await this.readWorkingTreeDiffText(resolved.absolutePath);
       } else if (hasStagedChanges) {
         original = indexStatus === "A" ? "" : await this.readGitObjectDiffText(rootPath, `HEAD:${resolved.relativePath}`);

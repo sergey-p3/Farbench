@@ -91,6 +91,30 @@ describe("LocalAgent git integration", () => {
     });
   });
 
+  it("uses index content as original for a staged-added file with unstaged edits", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    git(["init"], dir);
+    git(["config", "user.email", "dev@example.com"], dir);
+    git(["config", "user.name", "Dev"], dir);
+
+    writeFileSync(join(dir, "app.txt"), "one\n");
+    git(["add", "app.txt"], dir);
+    writeFileSync(join(dir, "app.txt"), "two\n");
+
+    const agent = new LocalAgent();
+    const diff = await agent.gitFileDiff(dir, "app.txt");
+
+    expect(diff).toMatchObject({
+      path: "app.txt",
+      kind: "text",
+      original: "one\n",
+      current: "two\n",
+      message: null,
+    });
+    expect(diff.patch).toContain("-one");
+    expect(diff.patch).toContain("+two");
+  });
+
   it("returns structured text content for added and deleted files", async () => {
     dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
     git(["init"], dir);
@@ -196,5 +220,52 @@ describe("LocalAgent git integration", () => {
 
     expect(response.status).toBe(400);
     expect(await response.json()).toEqual({ error: "missing path" });
+  });
+
+  it("preserves leading and trailing spaces in git file diff paths", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    git(["init"], dir);
+    git(["config", "user.email", "dev@example.com"], dir);
+    git(["config", "user.name", "Dev"], dir);
+    const spacedPath = " app.txt ";
+    writeFileSync(join(dir, spacedPath), "one\n");
+    git(["add", spacedPath], dir);
+    git(["commit", "-m", "initial"], dir);
+    writeFileSync(join(dir, spacedPath), "two\n");
+
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const config: ServerConfig = {
+      host: "127.0.0.1",
+      port: 0,
+      workspacePath: dir,
+      workspaceName: "demo",
+      dataDir: dir,
+      authToken: "dev-password",
+    };
+    const app = await createApp({ config, db });
+    servers.push(app);
+    const appPort = await listen(app);
+    const baseUrl = `http://127.0.0.1:${appPort}`;
+    const login = await fetch(`${baseUrl}/api/login`, {
+      method: "POST",
+      headers: { "content-type": "application/json" },
+      body: JSON.stringify({ token: "dev-password" }),
+    });
+    const cookie = login.headers.get("set-cookie") ?? "";
+    const params = new URLSearchParams({ path: spacedPath });
+
+    const response = await fetch(`${baseUrl}/api/workspaces/${workspace.id}/git/file-diff?${params}`, {
+      headers: { cookie },
+    });
+
+    expect(response.status).toBe(200);
+    expect(await response.json()).toMatchObject({
+      path: spacedPath,
+      kind: "text",
+      original: "one\n",
+      current: "two\n",
+      message: null,
+    });
   });
 });
