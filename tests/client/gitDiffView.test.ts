@@ -1,10 +1,14 @@
 import { describe, expect, test, vi } from "vitest";
 import {
+  changedNewLineBlocksFromPatch,
+  changedNewLinesFromPatch,
   copyPayloadForGitLine,
   copyStatusLabel,
   copyTextToClipboard,
   defaultGitDiffMode,
   diffEditorOptionsForMode,
+  nextDiffFileIndex,
+  shouldCollapseGitFileList,
   validSelectedNewLine,
 } from "../../src/client/gitDiffView.js";
 
@@ -46,6 +50,57 @@ describe("git diff view helpers", () => {
     expect(diffEditorOptionsForMode("line-by-line")).toMatchObject({
       renderSideBySide: false,
     });
+  });
+
+  test("collapses the git file list on mobile only after a file is selected", () => {
+    expect(shouldCollapseGitFileList(500, null)).toBe(false);
+    expect(shouldCollapseGitFileList(500, "src/app.ts")).toBe(true);
+    expect(shouldCollapseGitFileList(900, "src/app.ts")).toBe(false);
+  });
+
+  test("finds the next diffable file index with wrapping", () => {
+    const changes = [
+      { path: "a.ts", diffAvailable: true },
+      { path: "b.png", diffAvailable: false },
+      { path: "c.ts", diffAvailable: true },
+    ];
+
+    expect(nextDiffFileIndex(changes, "a.ts")).toBe(2);
+    expect(nextDiffFileIndex(changes, "c.ts")).toBe(0);
+    expect(nextDiffFileIndex(changes, null)).toBe(0);
+    expect(nextDiffFileIndex(changes, "a.ts", -1)).toBe(2);
+  });
+
+  test("extracts changed new-file line numbers from unified patches", () => {
+    expect(changedNewLinesFromPatch(`@@ -1,3 +1,4 @@
+ unchanged
+-old
++new
++another
+ context
+@@ -9 +10,2 @@
++later
+`)).toEqual([2, 3, 10]);
+  });
+
+  test("extracts one target line per changed block from unified patches", () => {
+    expect(changedNewLineBlocksFromPatch(`@@ -1,3 +1,4 @@
+ unchanged
+-old
++new
++another
+ context
+@@ -9 +10,2 @@
++later
+`)).toEqual([2, 10]);
+  });
+
+  test("uses the current new-file position for deletion-only blocks", () => {
+    expect(changedNewLineBlocksFromPatch(`@@ -4,3 +4,2 @@
+ keep
+-deleted
+ next
+`)).toEqual([5]);
   });
 
   test("copies with clipboard api when available", async () => {

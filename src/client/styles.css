@@ -853,6 +853,10 @@ button.secondary-button {
   grid-row: 2;
 }
 
+.git-mobile-control-plane {
+  display: none;
+}
+
 .diff-output {
   background: #101820;
   color: #d7dee8;
@@ -949,6 +953,14 @@ button.secondary-button {
     grid-template-rows: minmax(0, 32vh) minmax(0, 1fr);
   }
 
+  .git-panel.git-panel-diff-focused {
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .git-panel-diff-focused .git-change-list {
+    display: none;
+  }
+
   .file-list,
   .git-change-list {
     border-bottom: 1px solid #d8dee6;
@@ -961,6 +973,49 @@ button.secondary-button {
   .diff-output {
     height: 100%;
     min-height: 0;
+  }
+
+  .git-panel-diff-focused .diff-panel {
+    grid-template-rows: auto auto minmax(0, 1fr) auto;
+  }
+
+  .git-panel-diff-focused .diff-controls {
+    display: none;
+  }
+
+  .git-mobile-control-plane {
+    align-items: center;
+    background: #101820;
+    border-top: 1px solid #22313f;
+    display: flex;
+    gap: 6px;
+    grid-row: 4;
+    min-height: 48px;
+    overflow-x: auto;
+    padding: 5px 7px;
+  }
+
+  .git-mobile-control-plane button {
+    background: #182533;
+    border: 1px solid #344657;
+    border-radius: 6px;
+    color: #d7dee8;
+    flex: 0 0 auto;
+    font-size: 0.76rem;
+    font-weight: 800;
+    height: 36px;
+    min-width: 40px;
+    padding: 5px 8px;
+  }
+
+  .git-mobile-control-plane button:disabled {
+    color: #748394;
+    opacity: 0.58;
+  }
+
+  .git-mobile-control-plane button:focus-visible {
+    border-color: #8bb8c5;
+    outline: none;
   }
 }
 

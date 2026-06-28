@@ -1,7 +1,9 @@
 import { DiffEditor, type DiffOnMount } from "@monaco-editor/react";
-import { useEffect, useRef, useState } from "react";
+import type * as Monaco from "monaco-editor";
+import { forwardRef, useEffect, useImperativeHandle, useMemo, useRef, useState } from "react";
 import type { GitFileDiffResponse } from "../../shared/types.js";
 import {
+  changedNewLineBlocksFromPatch,
   copyPayloadForGitLine,
   copyStatusLabel,
   copyTextToClipboard,
@@ -14,18 +16,32 @@ import {
 
 interface GitDiffViewerProps {
   diff: GitFileDiffResponse | null;
+  initialChangeDirection?: 1 | -1 | null;
   isLoading: boolean;
+  onInitialChangeShown?: () => void;
 }
 
-export function GitDiffViewer({ diff, isLoading }: GitDiffViewerProps) {
+export interface GitDiffViewerHandle {
+  copyLocation: () => Promise<void>;
+  showAdjacentChange: (direction: 1 | -1) => boolean;
+  showBoundaryChange: (direction: 1 | -1) => boolean;
+}
+
+export const GitDiffViewer = forwardRef<GitDiffViewerHandle, GitDiffViewerProps>(function GitDiffViewer(
+  { diff, initialChangeDirection = null, isLoading, onInitialChangeShown },
+  ref,
+) {
   const hostRef = useRef<HTMLDivElement | null>(null);
+  const modifiedEditorRef = useRef<Monaco.editor.IStandaloneCodeEditor | null>(null);
   const editorListenersRef = useRef<Array<{ dispose: () => void }>>([]);
   const [mode, setMode] = useState<GitDiffMode>(() => defaultGitDiffMode(window.innerWidth));
   const [selectedNewLine, setSelectedNewLine] = useState<number | null>(null);
   const [copyStatus, setCopyStatus] = useState<GitDiffCopyStatus>("idle");
+  const changedBlocks = useMemo(() => changedNewLineBlocksFromPatch(diff?.patch ?? ""), [diff?.patch]);
 
   useEffect(() => {
     disposeEditorListeners();
+    modifiedEditorRef.current = null;
     const width = hostRef.current?.clientWidth ?? window.innerWidth;
     setMode(defaultGitDiffMode(width));
     setSelectedNewLine(null);
@@ -36,10 +52,17 @@ export function GitDiffViewer({ diff, isLoading }: GitDiffViewerProps) {
     return disposeEditorListeners;
   }, []);
 
+  useImperativeHandle(ref, () => ({
+    copyLocation,
+    showAdjacentChange,
+    showBoundaryChange,
+  }));
+
   const handleMount: DiffOnMount = (editor) => {
     disposeEditorListeners();
     const originalEditor = editor.getOriginalEditor();
     const modifiedEditor = editor.getModifiedEditor();
+    modifiedEditorRef.current = modifiedEditor;
     const updateSelectedLine = (lineNumber: number | null, modifiedFocused: boolean) => {
       setSelectedNewLine(validSelectedNewLine({
         currentContent: diff?.current ?? "",
@@ -59,15 +82,48 @@ export function GitDiffViewer({ diff, isLoading }: GitDiffViewerProps) {
         updateSelectedLine(event.position.lineNumber, modifiedEditor.hasTextFocus());
       }),
     ];
+
+    if (initialChangeDirection !== null) {
+      window.requestAnimationFrame(() => {
+        if (showBoundaryChange(initialChangeDirection)) onInitialChangeShown?.();
+      });
+    }
   };
 
-  async function copyLocation() {
+  async function copyLocation(): Promise<void> {
     if (!diff) return;
     if (await copyTextToClipboard(copyPayloadForGitLine(diff.path, selectedNewLine))) {
       setCopyStatus("copied");
       return;
     }
     setCopyStatus("failed");
+  }
+
+  function showAdjacentChange(direction: 1 | -1): boolean {
+    const modifiedEditor = modifiedEditorRef.current;
+    if (!modifiedEditor || changedBlocks.length === 0) return false;
+    const currentLine = modifiedEditor.getPosition()?.lineNumber ?? 0;
+    const targetLine = direction === 1
+      ? changedBlocks.find((line) => selectedNewLine === null ? line >= currentLine : line > currentLine)
+      : [...changedBlocks].reverse().find((line) => selectedNewLine === null ? line <= currentLine : line < currentLine);
+    if (targetLine === undefined) return false;
+    showChangeAtLine(modifiedEditor, targetLine);
+    return true;
+  }
+
+  function showBoundaryChange(direction: 1 | -1): boolean {
+    const modifiedEditor = modifiedEditorRef.current;
+    if (!modifiedEditor || changedBlocks.length === 0) return false;
+    const targetLine = direction === 1 ? changedBlocks[0] : changedBlocks[changedBlocks.length - 1];
+    showChangeAtLine(modifiedEditor, targetLine);
+    return true;
+  }
+
+  function showChangeAtLine(modifiedEditor: Monaco.editor.IStandaloneCodeEditor, targetLine: number) {
+    modifiedEditor.setPosition({ column: 1, lineNumber: targetLine });
+    modifiedEditor.revealLineInCenter(targetLine);
+    setSelectedNewLine(targetLine);
+    setCopyStatus("idle");
   }
 
   function selectMode(nextMode: GitDiffMode) {
@@ -151,7 +207,7 @@ export function GitDiffViewer({ diff, isLoading }: GitDiffViewerProps) {
       </div>
     </div>
   );
-}
+});
 
 function languageForPath(path: string): string {
   if (path.endsWith(".ts") || path.endsWith(".tsx")) return "typescript";
