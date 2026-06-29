@@ -17,6 +17,7 @@ import {
   type TerminalSelectionHandleLayout,
 } from "../terminalSelection.js";
 import { terminalKeyboardChromeInset, terminalViewportFitDelayMs } from "../terminalViewport.js";
+import { readCachedScrollback, writeCachedScrollback } from "../terminalScrollbackCache.js";
 
 interface TerminalPaneProps {
   sessionId: string | null;
@@ -57,6 +58,9 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const socketRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const pendingInputRef = useRef<string[]>([]);
+  const showingCachedScrollbackRef = useRef(false);
+  const receivedScrollbackRef = useRef(false);
   const isCtrlActiveRef = useRef(false);
   const skipNextToolbarClickRef = useRef(false);
   const longPressTimerRef = useRef<number | null>(null);
@@ -70,6 +74,10 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const [isPasteCaptureVisible, setIsPasteCaptureVisible] = useState(false);
   const [selectionHandles, setSelectionHandles] = useState<TerminalSelectionHandleLayout | null>(null);
 
+  const focusTerminal = useCallback(() => {
+    window.setTimeout(() => terminalRef.current?.focus(), 0);
+  }, []);
+
   const updateCtrlActive = useCallback((next: boolean | ((current: boolean) => boolean)) => {
     const nextValue = typeof next === "function" ? next(isCtrlActiveRef.current) : next;
     isCtrlActiveRef.current = nextValue;
@@ -78,7 +86,14 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
 
   const sendTerminalInput = useCallback((data: string) => {
     const socket = socketRef.current;
-    if (!socket || socket.readyState !== WebSocket.OPEN) return;
+    if (socket?.readyState === WebSocket.CONNECTING) {
+      pendingInputRef.current.push(data);
+      return;
+    }
+    if (!socket || socket.readyState !== WebSocket.OPEN) {
+      setStatus("Terminal is reconnecting.");
+      return;
+    }
     socket.send(JSON.stringify({ type: "input", data }));
   }, []);
 
@@ -204,6 +219,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
 
   const handleTerminalPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     setActionMenu(null);
+    focusTerminal();
     explicitTapStartRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
     if (event.button !== 0 || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
 
@@ -215,7 +231,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
         openTerminalActionMenu(start.x, start.y);
       }
     }, LONG_PRESS_MS);
-  }, [openTerminalActionMenu]);
+  }, [focusTerminal, openTerminalActionMenu]);
 
   const handleTerminalPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const start = longPressStartRef.current;
@@ -381,7 +397,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
         event.stopPropagation();
         setIsPasteCaptureVisible(false);
         setActionMenu(null);
-        terminalRef.current?.focus();
+        focusTerminal();
       }
     };
     const handlePointerDown = (event: PointerEvent) => {
@@ -400,7 +416,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       window.removeEventListener("resize", cancelTerminalPointerGesture);
       window.removeEventListener("scroll", cancelTerminalPointerGesture, true);
     };
-  }, [actionMenu, cancelTerminalPointerGesture]);
+  }, [actionMenu, cancelTerminalPointerGesture, focusTerminal]);
 
   useEffect(() => {
     setStatus(null);
@@ -429,6 +445,8 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
     socketRef.current = socket;
+    showingCachedScrollbackRef.current = false;
+    receivedScrollbackRef.current = false;
     terminal.loadAddon(fitAddon);
     terminal.open(containerRef.current);
     terminal.attachCustomKeyEventHandler((event) => {
@@ -437,6 +455,14 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       }
       return true;
     });
+
+    // Paint the previous session view instantly so a reload shows history while the
+    // socket reconnects and the authoritative scrollback arrives.
+    const cachedScrollback = readCachedScrollback(window.sessionStorage, sessionId);
+    if (cachedScrollback) {
+      showingCachedScrollbackRef.current = true;
+      terminal.write(cachedScrollback);
+    }
 
     const fit = () => {
       try {
@@ -611,8 +637,12 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       if (!isCurrentSocket()) return;
       fit();
       socket.send(JSON.stringify({ type: "attach", sessionId, cols: terminal.cols, rows: terminal.rows }));
+      for (const data of pendingInputRef.current.splice(0)) {
+        socket.send(JSON.stringify({ type: "input", data }));
+      }
       setStatus(null);
       terminal.focus();
+      focusTerminal();
     });
 
     socket.addEventListener("message", (event) => {
@@ -621,12 +651,19 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       if (!message) return;
 
       if (message.type === "scrollback") {
+        receivedScrollbackRef.current = true;
+        showingCachedScrollbackRef.current = false;
         terminal.clear();
         if (message.data) terminal.write(message.data);
+        writeCachedScrollback(window.sessionStorage, sessionId, message.data);
         return;
       }
 
       if (message.type === "output") {
+        if (showingCachedScrollbackRef.current && !receivedScrollbackRef.current) {
+          showingCachedScrollbackRef.current = false;
+          terminal.clear();
+        }
         terminal.write(message.data);
         return;
       }
@@ -702,10 +739,13 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       if (socketRef.current === socket) socketRef.current = null;
       if (terminalRef.current === terminal) terminalRef.current = null;
       if (fitAddonRef.current === fitAddon) fitAddonRef.current = null;
+      pendingInputRef.current = [];
+      showingCachedScrollbackRef.current = false;
+      receivedScrollbackRef.current = false;
       socket.close();
       terminal.dispose();
     };
-  }, [clearLongPress, onUnauthorized, retryNonce, sendTerminalInput, sessionId, updateCtrlActive, updateTerminalSelectionHandles]);
+  }, [clearLongPress, focusTerminal, onUnauthorized, retryNonce, sendTerminalInput, sessionId, updateCtrlActive, updateTerminalSelectionHandles]);
 
   if (!sessionId) {
     return (

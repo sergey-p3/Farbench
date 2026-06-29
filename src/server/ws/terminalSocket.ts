@@ -15,6 +15,7 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
     let terminal: pty.IPty | null = null;
     let attachedTmuxName: string | null = null;
     let outputSanitizer = new TerminalOutputSanitizer("bash");
+    let hasLiveActivity = false;
     const detachedTerminals = new WeakSet<pty.IPty>();
 
     const send = (message: Record<string, unknown>): void => {
@@ -30,6 +31,7 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
       terminal = null;
       attachedTmuxName = null;
       outputSanitizer = new TerminalOutputSanitizer("bash");
+      hasLiveActivity = false;
     };
 
     socket.on("message", (raw) => {
@@ -53,14 +55,6 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
         detach();
         outputSanitizer = new TerminalOutputSanitizer(session.type);
 
-        let scrollback = "";
-        try {
-          scrollback = await tmux.capture(session.tmuxName);
-        } catch {
-          scrollback = "";
-        }
-        send({ type: "scrollback", data: stripTerminalReplay(session.type, scrollback) });
-
         try {
           terminal = tmux.attach(session.tmuxName, message.cols, message.rows);
           attachedTmuxName = session.tmuxName;
@@ -71,10 +65,14 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
         }
         const attachedTerminal = terminal;
         const attachedSessionId = session.id;
+        hasLiveActivity = false;
         db.touchSessionAttachment(session.id);
         terminal.onData((data) => {
           const cleanData = outputSanitizer.clean(data);
-          if (cleanData) send({ type: "output", data: cleanData });
+          if (cleanData) {
+            hasLiveActivity = true;
+            send({ type: "output", data: cleanData });
+          }
         });
         terminal.onExit(() => {
           if (!detachedTerminals.has(attachedTerminal)) {
@@ -85,12 +83,19 @@ export function registerTerminalSocket(server: WebSocketServer, db: MetadataDb, 
             terminal = null;
           }
         });
+        void tmux.capture(session.tmuxName)
+          .then((scrollback) => {
+            if (terminal !== attachedTerminal || hasLiveActivity) return;
+            send({ type: "scrollback", data: stripTerminalReplay(session.type, scrollback) });
+          })
+          .catch(() => {});
         return;
       }
 
       if (!terminal) return;
 
       if (message.type === "input") {
+        hasLiveActivity = true;
         terminal.write(message.data);
         return;
       }
@@ -168,5 +173,5 @@ function parseMessage(raw: string): ClientMessage {
 }
 
 function numberOrDefault(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) ? value : fallback;
+  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
 }
