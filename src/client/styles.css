@@ -621,6 +621,22 @@ button.secondary-button {
   outline: none;
 }
 
+.terminal-paste-capture {
+  border: 1px solid #8eb8c3;
+  border-radius: 4px;
+  color: #263442;
+  font: inherit;
+  min-height: 38px;
+  min-width: 180px;
+  padding: 8px;
+  resize: none;
+}
+
+.terminal-paste-capture:focus {
+  outline: 2px solid #5a9aaa;
+  outline-offset: 1px;
+}
+
 .terminal-keybar {
   align-items: center;
   background: #0d141b;

@@ -53,6 +53,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const stageRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
+  const pasteCaptureRef = useRef<HTMLTextAreaElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
@@ -66,6 +67,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const [retryNonce, setRetryNonce] = useState(0);
   const [isCtrlActive, setIsCtrlActive] = useState(false);
   const [actionMenu, setActionMenu] = useState<TerminalActionMenuState | null>(null);
+  const [isPasteCaptureVisible, setIsPasteCaptureVisible] = useState(false);
   const [selectionHandles, setSelectionHandles] = useState<TerminalSelectionHandleLayout | null>(null);
 
   const updateCtrlActive = useCallback((next: boolean | ((current: boolean) => boolean)) => {
@@ -274,16 +276,39 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   }, [actionMenu, selectTerminalWordAtPointer]);
 
   const pasteFromClipboard = useCallback(async () => {
-    setActionMenu(null);
-    terminalRef.current?.focus();
-
     try {
       const text = await navigator.clipboard.readText();
       if (text) sendTerminalInput(text);
+      setIsPasteCaptureVisible(false);
+      setActionMenu(null);
+      terminalRef.current?.focus();
     } catch {
-      setStatus("Unable to read clipboard.");
+      setIsPasteCaptureVisible(true);
+      window.setTimeout(() => pasteCaptureRef.current?.focus(), 0);
     }
   }, [sendTerminalInput]);
+
+  const sendCapturedPaste = useCallback((text: string) => {
+    if (!text) return;
+    sendTerminalInput(text);
+    setIsPasteCaptureVisible(false);
+    setActionMenu(null);
+    terminalRef.current?.focus();
+  }, [sendTerminalInput]);
+
+  const handlePasteCapturePaste = useCallback((event: React.ClipboardEvent<HTMLTextAreaElement>) => {
+    const text = event.clipboardData.getData("text/plain");
+    if (!text) return;
+    event.preventDefault();
+    event.currentTarget.value = "";
+    sendCapturedPaste(text);
+  }, [sendCapturedPaste]);
+
+  const handlePasteCaptureInput = useCallback((event: React.FormEvent<HTMLTextAreaElement>) => {
+    const text = event.currentTarget.value;
+    event.currentTarget.value = "";
+    sendCapturedPaste(text);
+  }, [sendCapturedPaste]);
 
   const selectAllTerminalText = useCallback(() => {
     terminalRef.current?.selectAll();
@@ -354,12 +379,14 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       if (event.key === "Escape") {
         event.preventDefault();
         event.stopPropagation();
+        setIsPasteCaptureVisible(false);
         setActionMenu(null);
         terminalRef.current?.focus();
       }
     };
     const handlePointerDown = (event: PointerEvent) => {
       if (actionMenuRef.current?.contains(event.target as Node)) return;
+      setIsPasteCaptureVisible(false);
       setActionMenu(null);
     };
 
@@ -404,6 +431,12 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     socketRef.current = socket;
     terminal.loadAddon(fitAddon);
     terminal.open(containerRef.current);
+    terminal.attachCustomKeyEventHandler((event) => {
+      if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "v") {
+        return false;
+      }
+      return true;
+    });
 
     const fit = () => {
       try {
@@ -748,6 +781,20 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
           <button onClick={() => void copyTerminalSelection()} role="menuitem" type="button">Copy</button>
           <button onClick={() => void pasteFromClipboard()} role="menuitem" type="button">Paste</button>
           <button onClick={selectAllTerminalText} role="menuitem" type="button">Select all</button>
+          {isPasteCaptureVisible ? (
+            <textarea
+              aria-label="Paste terminal input"
+              autoCapitalize="none"
+              autoComplete="off"
+              autoCorrect="off"
+              className="terminal-paste-capture"
+              onInput={handlePasteCaptureInput}
+              onPaste={handlePasteCapturePaste}
+              ref={pasteCaptureRef}
+              rows={1}
+              spellCheck={false}
+            />
+          ) : null}
         </div>
       ) : null}
       <div className="terminal-keybar" role="toolbar" aria-label="Terminal special keys">

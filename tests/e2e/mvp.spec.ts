@@ -479,6 +479,70 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   expect(contentTouch.after).toBeLessThan(contentTouch.before);
   expect(activeElementLabel).toBe("Terminal input");
 
+  await page.evaluate(() => navigator.clipboard.writeText("pasted terminal text"));
+  await page.getByLabel("Terminal input").focus();
+  await page.keyboard.press("Control+V");
+  await expect.poll(async () => {
+    const messages = await page.evaluate(() => {
+      const rawMessages = Reflect.get(window, "__terminalSentMessages") as string[];
+      return rawMessages.map((message) => JSON.parse(message) as { type: string; data?: string });
+    });
+    return messages.filter((message) => message.type === "input").map((message) => message.data);
+  }).toContain("pasted terminal text");
+
+  await page.evaluate(() => {
+    const clipboard = navigator.clipboard;
+    Reflect.set(window, "__originalClipboardReadText", clipboard.readText.bind(clipboard));
+    Object.defineProperty(clipboard, "readText", {
+      configurable: true,
+      value: () => Promise.reject(new Error("denied")),
+    });
+  });
+  await page.getByLabel("Terminal input").focus();
+  await page.keyboard.press("Control+V");
+  await page.evaluate(() => {
+    const input = document.querySelector('[aria-label="Terminal input"]');
+    if (!(input instanceof HTMLElement)) throw new Error("Terminal input not found");
+    const data = new DataTransfer();
+    data.setData("text/plain", "native paste text");
+    input.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData: data }));
+  });
+  await expect(page.getByText("Unable to read clipboard.")).toHaveCount(0);
+  await expect.poll(async () => {
+    const messages = await page.evaluate(() => {
+      const rawMessages = Reflect.get(window, "__terminalSentMessages") as string[];
+      return rawMessages.map((message) => JSON.parse(message) as { type: string; data?: string });
+    });
+    return messages.filter((message) => message.type === "input").map((message) => message.data);
+  }).toContain("native paste text");
+  await terminalSurface.click({ button: "right", position: { x: 20, y: 60 } });
+  await page.getByRole("menuitem", { name: "Paste" }).click();
+  await expect(page.getByText("Unable to read clipboard.")).toHaveCount(0);
+  const pasteTarget = page.getByLabel("Paste terminal input");
+  await expect(pasteTarget).toBeFocused();
+  await page.evaluate(() => {
+    const input = document.querySelector('[aria-label="Paste terminal input"]');
+    if (!(input instanceof HTMLElement)) throw new Error("Paste terminal input not found");
+    const data = new DataTransfer();
+    data.setData("text/plain", "ios paste target text");
+    input.dispatchEvent(new ClipboardEvent("paste", { bubbles: true, clipboardData: data }));
+  });
+  await expect.poll(async () => {
+    const messages = await page.evaluate(() => {
+      const rawMessages = Reflect.get(window, "__terminalSentMessages") as string[];
+      return rawMessages.map((message) => JSON.parse(message) as { type: string; data?: string });
+    });
+    return messages.filter((message) => message.type === "input").map((message) => message.data);
+  }).toContain("ios paste target text");
+  await page.evaluate(() => {
+    const originalReadText = Reflect.get(window, "__originalClipboardReadText");
+    if (typeof originalReadText !== "function") throw new Error("Original clipboard readText not captured");
+    Object.defineProperty(navigator.clipboard, "readText", {
+      configurable: true,
+      value: originalReadText,
+    });
+  });
+
   const closedKeyboardScroll = await page.evaluate(() => {
     const host = document.querySelector(".terminal-host");
     const viewport = document.querySelector(".terminal-host .xterm-viewport");
@@ -748,7 +812,15 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     const messages = Reflect.get(window, "__terminalSentMessages") as string[];
     return messages.map((message) => JSON.parse(message) as { type: string; data?: string });
   });
-  expect(sentMessagesAfterTypedCtrl.filter((message) => message.type === "input").map((message) => message.data)).toEqual(["\x03", "\x1b[A", "\x03"]);
+  expect(sentMessagesAfterTypedCtrl.filter((message) => message.type === "input").map((message) => message.data)).toEqual([
+    "\x03",
+    "\x1b[A",
+    "pasted terminal text",
+    "pasted terminal text",
+    "native paste text",
+    "ios paste target text",
+    "\x03",
+  ]);
 
   await page.getByLabel("Terminal input").focus();
   await page.evaluate(() => {
@@ -774,7 +846,16 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     return messages.map((message) => JSON.parse(message) as { type: string; data?: string });
   });
   const activeElementLabelAfterTouch = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
-  expect(sentMessagesAfterTouchCtrl.filter((message) => message.type === "input").map((message) => message.data)).toEqual(["\x03", "\x1b[A", "\x03", "\x03"]);
+  expect(sentMessagesAfterTouchCtrl.filter((message) => message.type === "input").map((message) => message.data)).toEqual([
+    "\x03",
+    "\x1b[A",
+    "pasted terminal text",
+    "pasted terminal text",
+    "native paste text",
+    "ios paste target text",
+    "\x03",
+    "\x03",
+  ]);
   expect(activeElementLabelAfterTouch).toBe("Terminal input");
 
   await openTopMenu(page);
