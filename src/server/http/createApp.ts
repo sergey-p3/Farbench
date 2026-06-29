@@ -371,7 +371,6 @@ export async function createApp({ config, db, agent = new LocalAgent(), devClien
   registerTerminalSocket(terminalSocket, db);
   server.on("upgrade", (req, socket, head) => {
     if (!req.url?.startsWith("/ws/terminal")) {
-      socket.destroy();
       return;
     }
     if (!auth.isValid(req as Request)) {
