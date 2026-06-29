@@ -247,6 +247,56 @@ button:disabled {
   overflow: hidden;
 }
 
+.tab-shortcut-rail {
+  align-content: start;
+  background: rgb(255 255 255 / 18%);
+  backdrop-filter: blur(8px);
+  border: 1px solid rgb(200 209 220 / 42%);
+  border-radius: 7px;
+  box-shadow: 0 10px 28px rgb(31 41 51 / 10%);
+  display: grid;
+  gap: 5px;
+  max-height: calc(var(--app-viewport-height) - 76px);
+  overflow-x: hidden;
+  overflow-y: auto;
+  padding: 5px;
+  position: absolute;
+  right: 8px;
+  scrollbar-width: thin;
+  top: 54px;
+  width: 42px;
+  z-index: 9;
+}
+
+.tab-shortcut-button {
+  align-items: center;
+  background: rgb(255 255 255 / 50%);
+  border: 1px solid rgb(255 255 255 / 62%);
+  border-radius: 6px;
+  color: #263442;
+  display: inline-grid;
+  font-size: 0.72rem;
+  font-weight: 800;
+  height: 30px;
+  justify-content: center;
+  line-height: 1;
+  min-height: 30px;
+  min-width: 30px;
+  padding: 0;
+  width: 30px;
+}
+
+.tab-shortcut-button.active {
+  background: rgb(90 154 170 / 82%);
+  border-color: rgb(255 255 255 / 78%);
+  color: #ffffff;
+}
+
+.tab-shortcut-button:focus-visible {
+  outline: 2px solid #24435f;
+  outline-offset: 2px;
+}
+
 .focused-empty {
   align-content: center;
   display: grid;
@@ -998,6 +1048,20 @@ button.secondary-button {
 
   .terminal-pane {
     max-height: calc(var(--terminal-visual-height) - 58px);
+  }
+
+  .tab-shortcut-rail {
+    max-height: calc(var(--app-viewport-height) - 70px);
+    right: 6px;
+    top: 50px;
+    width: 40px;
+  }
+
+  .tab-shortcut-button {
+    height: 28px;
+    min-height: 28px;
+    min-width: 28px;
+    width: 28px;
   }
 
   .file-panel,

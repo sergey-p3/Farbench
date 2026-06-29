@@ -220,6 +220,28 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
           onOpenCreateSheet={() => setIsCreateOpen(true)}
           onUnauthorized={onUnauthorized}
         />
+
+        {visibleItems.length > 0 ? (
+          <nav className="tab-shortcut-rail" aria-label="Open item shortcuts">
+            {visibleItems.map((item) => {
+              const isActive = item.id === active?.id;
+              return (
+                <button
+                  aria-current={isActive ? "page" : undefined}
+                  aria-label={`Switch to ${item.title}`}
+                  aria-pressed={isActive}
+                  className={`tab-shortcut-button ${isActive ? "active" : ""}`}
+                  key={item.id}
+                  onClick={() => focusExistingItem(item.id)}
+                  title={item.title}
+                  type="button"
+                >
+                  {shortcutLabel(item)}
+                </button>
+              );
+            })}
+          </nav>
+        ) : null}
       </section>
 
       <ItemSwitcher
@@ -245,4 +267,13 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
       />
     </main>
   );
+}
+
+function shortcutLabel(item: WorkspaceItem): string {
+  if (item.kind === "terminal") return "T";
+  if (item.kind === "agent") return item.config?.runtime?.slice(0, 1).toUpperCase() ?? "A";
+  if (item.kind === "files") return "F";
+  if (item.kind === "git") return "G";
+  if (item.kind === "preview") return "P";
+  return item.title.slice(0, 1).toUpperCase();
 }

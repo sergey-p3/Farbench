@@ -184,6 +184,70 @@ test("owner uses mobile focused item shell and restores last active item", async
   }
 });
 
+test("right-side shortcut rail switches between persisted open items", async ({ page }) => {
+  await page.route("**/api/login", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { ok: true } });
+  });
+  await page.route("**/api/workspaces", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        workspaces: [{
+          id: "w1",
+          name: "e2e-workspace",
+          rootPath: "/workspace",
+          status: "available",
+        }],
+      },
+    });
+  });
+  await page.route("**/api/workspaces/w1/sessions", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { sessions: [] } });
+  });
+  await page.route("**/api/workspaces/w1/files**", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { files: [] } });
+  });
+
+  await page.addInitScript(() => {
+    window.localStorage.setItem("remote-dev-layout", JSON.stringify({
+      selectedWorkspaceId: "w1",
+      activePaneId: "main",
+      panes: [{
+        id: "main",
+        activeItemId: "preview:w1:3000:%2F",
+        itemIds: ["files:w1", "git:w1", "preview:w1:3000:%2F"],
+      }],
+      items: [
+        { id: "files:w1", workspaceId: "w1", kind: "files", title: "Files", status: "ready" },
+        { id: "git:w1", workspaceId: "w1", kind: "git", title: "Git diff", status: "ready" },
+        {
+          id: "preview:w1:3000:%2F",
+          workspaceId: "w1",
+          kind: "preview",
+          title: "Preview :3000",
+          status: "ready",
+          config: { port: 3000, path: "/" },
+        },
+      ],
+    }));
+  });
+
+  await page.setViewportSize({ width: 390, height: 520 });
+  await page.goto("/");
+
+  const shortcutRail = page.getByLabel("Open item shortcuts");
+  await expect(shortcutRail).toBeVisible();
+  await expect(shortcutRail).toHaveCSS("overflow-y", "auto");
+  await expect(shortcutRail.getByRole("button", { name: "Switch to Files" })).toBeVisible();
+  await expect(shortcutRail.getByRole("button", { name: "Switch to Git diff" })).toBeVisible();
+  await expect(shortcutRail.getByRole("button", { name: "Switch to Preview :3000" })).toHaveAttribute("aria-current", "page");
+
+  await shortcutRail.getByRole("button", { name: "Switch to Files" }).click();
+  await openTopMenu(page);
+  await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
+  await expect(shortcutRail.getByRole("button", { name: "Switch to Files" })).toHaveAttribute("aria-current", "page");
+});
+
 test("top menu collapses into an overlay and can be pinned into layout", async ({ page }) => {
   await page.setViewportSize({ width: 390, height: 844 });
   await page.context().clearCookies();
