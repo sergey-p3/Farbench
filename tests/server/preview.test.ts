@@ -2,7 +2,7 @@ import http, { type Server } from "node:http";
 import { mkdtempSync, rmSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
-import WebSocket from "ws";
+import WebSocket, { WebSocketServer } from "ws";
 import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../../src/server/http/createApp.js";
 import type { ServerConfig } from "../../src/server/config.js";
@@ -159,6 +159,55 @@ describe("manual preview proxy", () => {
 
     const socket = await openWebSocket(wsUrl, { cookie });
     await closeWebSocket(socket);
+  });
+
+  it("leaves non-terminal websocket upgrades available for dev tooling", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    const db = createDatabase(join(dir, "state.db"));
+    db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const config: ServerConfig = {
+      host: "127.0.0.1",
+      port: 0,
+      workspacePath: dir,
+      workspaceName: "demo",
+      dataDir: dir,
+      authToken: "dev-password",
+    };
+    const app = await createApp({ config, db });
+    const devSocketServer = new WebSocketServer({ noServer: true });
+    app.on("upgrade", (req, socket, head) => {
+      if (req.url !== "/vite-hmr") return;
+      devSocketServer.handleUpgrade(req, socket, head, (ws) => {
+        devSocketServer.emit("connection", ws, req);
+      });
+    });
+    devSocketServer.on("connection", (socket) => {
+      socket.on("message", () => {
+        socket.send("dev socket ready");
+      });
+    });
+    servers.push(app);
+    const appPort = await listen(app);
+
+    try {
+      const socket = await openWebSocket(`ws://127.0.0.1:${appPort}/vite-hmr`);
+      const ready = new Promise<void>((resolve, reject) => {
+        socket.once("message", (message) => {
+          try {
+            expect(message.toString()).toBe("dev socket ready");
+            resolve();
+          } catch (error) {
+            reject(error);
+          }
+        });
+        socket.once("error", reject);
+      });
+      socket.send("ping");
+      await ready;
+      await closeWebSocket(socket);
+    } finally {
+      devSocketServer.close();
+    }
   });
 
   it("returns a stable bad gateway when the preview target is unavailable", async () => {

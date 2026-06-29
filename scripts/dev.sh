@@ -55,6 +55,7 @@ WORKSPACE_NAME="${WORKSPACE_NAME:-$(random_workspace_name)}"
 REMOTE_DEV_RUN_DIR="${REMOTE_DEV_RUN_DIR:-$PWD/.remote-dev}"
 PID_FILE="$REMOTE_DEV_RUN_DIR/dev.pid"
 LOG_FILE="$REMOTE_DEV_RUN_DIR/dev.log"
+TSX_BIN="${TSX_BIN:-$PWD/node_modules/.bin/tsx}"
 
 read_pid() {
   if [[ -f "$PID_FILE" ]]; then
@@ -110,7 +111,7 @@ dev_command() {
   fi
 
   args+=(--workspace-name "$WORKSPACE_NAME")
-  command=(npx --no-install tsx watch src/server/cli.ts "${args[@]}")
+  command=("$TSX_BIN" watch --exclude .remote-dev --exclude node_modules --exclude dist --exclude test-results src/server/cli.ts "${args[@]}")
 }
 
 start_daemon() {
@@ -127,7 +128,7 @@ start_daemon() {
   export REMOTE_DEV_VITE="${REMOTE_DEV_VITE:-1}"
   dev_command
 
-  nohup "${command[@]}" > "$LOG_FILE" 2>&1 &
+  setsid "${command[@]}" > "$LOG_FILE" 2>&1 < /dev/null &
   pid="$!"
   echo "$pid" > "$PID_FILE"
   echo "Started dev daemon $pid."

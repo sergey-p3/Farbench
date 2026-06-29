@@ -18,7 +18,7 @@ describe("project scripts", () => {
 
   test.each([
     ["run.sh", "node", "127.0.0.1", "7000", null],
-    ["dev.sh", "npx", "0.0.0.0", "9154", "dev-password"]
+    ["dev.sh", "tsx", "0.0.0.0", "9154", "dev-password"]
   ])("%s defaults to expected host, port, caller workspace, and random workspace name", (
     scriptName,
     capturedCommand,
@@ -51,6 +51,7 @@ describe("project scripts", () => {
         env: {
           ...process.env,
           PATH: `${binDir}:${process.env.PATH ?? ""}`,
+          TSX_BIN: join(binDir, "tsx"),
           SCRIPT_CAPTURE_FILE: captureFile
         },
         stdio: "pipe"
@@ -63,8 +64,19 @@ describe("project scripts", () => {
       expect(commandPath).toBe(join(binDir, capturedCommand));
       expect(executedFrom).toBe(root);
       if (scriptName === "dev.sh") {
-        expect(args.slice(0, 4)).toEqual(["--no-install", "tsx", "watch", "src/server/cli.ts"]);
-        args.splice(0, 4);
+        expect(args.slice(0, 10)).toEqual([
+          "watch",
+          "--exclude",
+          ".remote-dev",
+          "--exclude",
+          "node_modules",
+          "--exclude",
+          "dist",
+          "--exclude",
+          "test-results",
+          "src/server/cli.ts"
+        ]);
+        args.splice(0, 10);
       } else {
         expect(args[0]).toBe("dist/server/cli.js");
         args.splice(0, 1);
@@ -89,7 +101,7 @@ describe("project scripts", () => {
     const runtimeDir = join(fixture.tempRoot, "runtime");
 
     writeFileSync(
-      join(fixture.binDir, "npx"),
+      join(fixture.binDir, "tsx"),
       [
         "#!/usr/bin/env bash",
         'printf "%s\\n" "$0" "$PWD" "$@" > "$SCRIPT_CAPTURE_FILE"',
@@ -107,9 +119,20 @@ describe("project scripts", () => {
       });
 
       const [commandPath, executedFrom, ...args] = readEventually(fixture.captureFile).trim().split("\n");
-      expect(commandPath).toBe(join(fixture.binDir, "npx"));
+      expect(commandPath).toBe(join(fixture.binDir, "tsx"));
       expect(executedFrom).toBe(root);
-      expect(args.slice(0, 4)).toEqual(["--no-install", "tsx", "watch", "src/server/cli.ts"]);
+      expect(args.slice(0, 10)).toEqual([
+        "watch",
+        "--exclude",
+        ".remote-dev",
+        "--exclude",
+        "node_modules",
+        "--exclude",
+        "dist",
+        "--exclude",
+        "test-results",
+        "src/server/cli.ts"
+      ]);
       expect(readFileSync(join(runtimeDir, "dev.pid"), "utf8").trim()).toMatch(/^\d+$/);
       expect(existsSync(join(runtimeDir, "dev.log"))).toBe(true);
     } finally {
@@ -125,7 +148,7 @@ describe("project scripts", () => {
     writeFileSync(join(runtimeDir, "dev.pid"), `${longRunning}\n`);
 
     writeFileSync(
-      join(fixture.binDir, "npx"),
+      join(fixture.binDir, "tsx"),
       [
         "#!/usr/bin/env bash",
         'printf "%s\\n" "$0" "$PWD" "$@" > "$SCRIPT_CAPTURE_FILE"',
@@ -144,7 +167,7 @@ describe("project scripts", () => {
 
       expect(existsSync(`/proc/${longRunning}`)).toBe(false);
       expect(readFileSync(join(runtimeDir, "dev.pid"), "utf8").trim()).toMatch(/^\d+$/);
-      expect(readEventually(fixture.captureFile)).toContain("tsx\nwatch\nsrc/server/cli.ts");
+      expect(readEventually(fixture.captureFile)).toContain("watch\n--exclude\n.remote-dev");
     } finally {
       fixture.cleanup();
     }
@@ -205,6 +228,7 @@ function createScriptFixture() {
         ...process.env,
         PATH: `${binDir}:${process.env.PATH ?? ""}`,
         REMOTE_DEV_RUN_DIR: runtimeDir,
+        TSX_BIN: join(binDir, "tsx"),
         SCRIPT_CAPTURE_FILE: captureFile
       };
     }
