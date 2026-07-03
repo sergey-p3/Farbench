@@ -18,6 +18,7 @@ import {
 } from "../terminalSelection.js";
 import { terminalKeyboardChromeInset, terminalViewportFitDelayMs } from "../terminalViewport.js";
 import { readCachedScrollback, writeCachedScrollback } from "../terminalScrollbackCache.js";
+import { TERMINAL_HISTORY_LINES } from "../../shared/terminalHistory.js";
 
 interface TerminalPaneProps {
   sessionId: string | null;
@@ -431,7 +432,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       cursorBlink: true,
       fontFamily: "JetBrains Mono, Menlo, Monaco, Consolas, monospace",
       fontSize: 13,
-      scrollback: 5000,
+      scrollback: TERMINAL_HISTORY_LINES,
       theme: {
         background: "#101820",
         foreground: "#d7dee8",

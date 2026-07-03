@@ -1,5 +1,6 @@
+import { TERMINAL_HISTORY_CACHE_BYTES } from "../shared/terminalHistory.js";
+
 const CACHE_PREFIX = "remote-dev-terminal-scrollback:";
-const MAX_CACHED_BYTES = 200_000;
 
 type ReadableStorage = Pick<Storage, "getItem" | "setItem">;
 type WritableStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;
@@ -40,5 +41,5 @@ export function writeCachedScrollback(storage: WritableStorage, sessionId: strin
 }
 
 function capScrollback(data: string): string {
-  return data.length > MAX_CACHED_BYTES ? data.slice(data.length - MAX_CACHED_BYTES) : data;
+  return data.length > TERMINAL_HISTORY_CACHE_BYTES ? data.slice(data.length - TERMINAL_HISTORY_CACHE_BYTES) : data;
 }
