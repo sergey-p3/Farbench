@@ -2,6 +2,7 @@ import { spawn, spawnSync } from "node:child_process";
 import { nanoid } from "nanoid";
 import * as pty from "node-pty";
 import type { SessionType } from "../../shared/types.js";
+import { TERMINAL_HISTORY_LINES } from "../../shared/terminalHistory.js";
 
 export class TmuxManager {
   assertAvailable(): void {
@@ -21,6 +22,7 @@ export class TmuxManager {
     this.assertAvailable();
     const tmuxName = `remote_dev_${nanoid(10)}`;
     await runTmux(["new-session", "-d", "-s", tmuxName, "-c", rootPath, this.commandFor(type)]);
+    await this.configureHistoryLimit(tmuxName);
     return tmuxName;
   }
 
@@ -35,7 +37,9 @@ export class TmuxManager {
   }
 
   capture(tmuxName: string): Promise<string> {
-    return runTmux(["capture-pane", "-p", "-S", "-2000", "-t", tmuxName]);
+    return this.configureHistoryLimit(tmuxName).then(() =>
+      runTmux(["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`, "-t", tmuxName]),
+    );
   }
 
   async scroll(tmuxName: string, direction: "up" | "down"): Promise<void> {
@@ -57,6 +61,10 @@ export class TmuxManager {
 
   async kill(tmuxName: string): Promise<void> {
     await runTmux(["kill-session", "-t", tmuxName]);
+  }
+
+  private configureHistoryLimit(tmuxName: string): Promise<string> {
+    return runTmux(["set-option", "-t", tmuxName, "history-limit", String(TERMINAL_HISTORY_LINES)]);
   }
 }
 

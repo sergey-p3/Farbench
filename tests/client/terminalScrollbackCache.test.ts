@@ -4,6 +4,7 @@ import {
   scrollbackCacheKey,
   writeCachedScrollback,
 } from "../../src/client/terminalScrollbackCache.js";
+import { TERMINAL_HISTORY_CACHE_BYTES } from "../../src/shared/terminalHistory.js";
 
 function fakeStorage(initial: Record<string, string> = {}): Storage & { store: Record<string, string> } {
   const store: Record<string, string> = { ...initial };
@@ -60,18 +61,20 @@ describe("terminalScrollbackCache", () => {
 
   test("caps stored data to the tail when oversized", () => {
     const storage = fakeStorage();
-    const big = "x".repeat(500_000);
+    const big = "x".repeat(TERMINAL_HISTORY_CACHE_BYTES + 1);
     writeCachedScrollback(storage, "a", big);
     const stored = readCachedScrollback(storage, "a") ?? "";
     expect(stored.length).toBeLessThan(big.length);
+    expect(stored).toHaveLength(TERMINAL_HISTORY_CACHE_BYTES);
     expect(big.endsWith(stored)).toBe(true);
   });
 
   test("caps legacy oversized data when reading", () => {
-    const big = "x".repeat(500_000);
+    const big = "x".repeat(TERMINAL_HISTORY_CACHE_BYTES + 1);
     const storage = fakeStorage({ [scrollbackCacheKey("a")]: big });
     const stored = readCachedScrollback(storage, "a") ?? "";
     expect(stored.length).toBeLessThan(big.length);
+    expect(stored).toHaveLength(TERMINAL_HISTORY_CACHE_BYTES);
     expect(big.endsWith(stored)).toBe(true);
     expect(storage.getItem(scrollbackCacheKey("a"))).toBe(stored);
   });
