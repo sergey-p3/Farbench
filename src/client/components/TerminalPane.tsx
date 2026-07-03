@@ -18,6 +18,7 @@ import {
 } from "../terminalSelection.js";
 import { terminalKeyboardChromeInset, terminalViewportFitDelayMs } from "../terminalViewport.js";
 import { readCachedScrollback, writeCachedScrollback } from "../terminalScrollbackCache.js";
+import { createTerminalDebugLogger, type TerminalDebugLogger } from "../terminalDebug.js";
 import { TERMINAL_HISTORY_LINES } from "../../shared/terminalHistory.js";
 
 interface TerminalPaneProps {
@@ -44,6 +45,7 @@ type TerminalSelectionHandleKind = "start" | "end";
 const LONG_PRESS_MS = 550;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 const TERMINAL_ACTION_MENU_WIDTH_PX = 168;
+let nextTerminalPaneInstanceId = 1;
 
 export function terminalSocketUrl(locationLike: Pick<Location, "protocol" | "host"> = window.location): string {
   const protocol = locationLike.protocol === "https:" ? "wss:" : "ws:";
@@ -59,6 +61,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const socketRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
   const fitAddonRef = useRef<FitAddon | null>(null);
+  const terminalDebugRef = useRef<TerminalDebugLogger | null>(null);
   const pendingInputRef = useRef<string[]>([]);
   const showingCachedScrollbackRef = useRef(false);
   const receivedScrollbackRef = useRef(false);
@@ -87,14 +90,22 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
 
   const sendTerminalInput = useCallback((data: string) => {
     const socket = socketRef.current;
+    const readyState = socket ? webSocketReadyStateName(socket.readyState) : "none";
     if (socket?.readyState === WebSocket.CONNECTING) {
       pendingInputRef.current.push(data);
+      terminalDebugRef.current?.("input.queued", {
+        bytes: data.length,
+        pendingInputCount: pendingInputRef.current.length,
+        readyState,
+      });
       return;
     }
     if (!socket || socket.readyState !== WebSocket.OPEN) {
+      terminalDebugRef.current?.("input.dropped", { bytes: data.length, readyState });
       setStatus("Terminal is reconnecting.");
       return;
     }
+    terminalDebugRef.current?.("input.sent", { bytes: data.length, readyState });
     socket.send(JSON.stringify({ type: "input", data }));
   }, []);
 
@@ -427,6 +438,11 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       return;
     }
 
+    const debug = createTerminalDebugLogger({
+      component: "TerminalPane",
+      instanceId: nextTerminalPaneInstanceId++,
+      sessionId,
+    });
     const terminal = new Terminal({
       convertEol: true,
       cursorBlink: true,
@@ -439,17 +455,25 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       },
     });
     const fitAddon = new FitAddon();
-    const socket = new WebSocket(terminalSocketUrl());
+    const socketUrl = terminalSocketUrl();
+    const socket = new WebSocket(socketUrl);
     let authProbeStarted = false;
     let deferredFitAndResizeTimer: number | null = null;
 
+    terminalDebugRef.current = debug;
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
     socketRef.current = socket;
+    debug("effect.start", {
+      hasContainer: true,
+      readyState: webSocketReadyStateName(socket.readyState),
+      socketUrl,
+    });
     showingCachedScrollbackRef.current = false;
     receivedScrollbackRef.current = false;
     terminal.loadAddon(fitAddon);
     terminal.open(containerRef.current);
+    debug("terminal.open", { cols: terminal.cols, rows: terminal.rows });
     terminal.attachCustomKeyEventHandler((event) => {
       if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "v") {
         return false;
@@ -460,6 +484,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     // Paint the previous session view instantly so a reload shows history while the
     // socket reconnects and the authoritative scrollback arrives.
     const cachedScrollback = readCachedScrollback(window.sessionStorage, sessionId);
+    debug("cache.read", { bytes: cachedScrollback?.length ?? 0, hit: Boolean(cachedScrollback) });
     if (cachedScrollback) {
       showingCachedScrollbackRef.current = true;
       terminal.write(cachedScrollback);
@@ -468,13 +493,22 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     const fit = () => {
       try {
         fitAddon.fit();
-      } catch {
+        debug("fit", { cols: terminal.cols, rows: terminal.rows });
+      } catch (error) {
+        debug("fit.failed", { error: error instanceof Error ? error.message : "unknown fit error" });
         return;
       }
     };
 
     const sendResize = () => {
-      if (!isCurrentSocket() || socket.readyState !== WebSocket.OPEN) return;
+      if (!isCurrentSocket() || socket.readyState !== WebSocket.OPEN) {
+        debug("resize.skipped", {
+          current: isCurrentSocket(),
+          readyState: webSocketReadyStateName(socket.readyState),
+        });
+        return;
+      }
+      debug("resize.sent", { cols: terminal.cols, rows: terminal.rows });
       socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
     };
 
@@ -635,10 +669,16 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     const scrollDisposable = terminal.onScroll(updateTerminalSelectionHandles);
 
     socket.addEventListener("open", () => {
-      if (!isCurrentSocket()) return;
+      if (!isCurrentSocket()) {
+        debug("socket.open.stale", { readyState: webSocketReadyStateName(socket.readyState) });
+        return;
+      }
+      debug("socket.open", { readyState: webSocketReadyStateName(socket.readyState) });
       fit();
       socket.send(JSON.stringify({ type: "attach", sessionId, cols: terminal.cols, rows: terminal.rows }));
+      debug("attach.sent", { cols: terminal.cols, pendingInputCount: pendingInputRef.current.length, rows: terminal.rows });
       for (const data of pendingInputRef.current.splice(0)) {
+        debug("input.flushed", { bytes: data.length });
         socket.send(JSON.stringify({ type: "input", data }));
       }
       setStatus(null);
@@ -647,9 +687,21 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     });
 
     socket.addEventListener("message", (event) => {
-      if (!isCurrentSocket()) return;
+      if (!isCurrentSocket()) {
+        debug("socket.message.stale", { bytes: socketDataBytes(event.data) });
+        return;
+      }
       const message = parseTerminalMessage(event.data);
-      if (!message) return;
+      if (!message) {
+        debug("socket.message.invalid", { bytes: socketDataBytes(event.data) });
+        return;
+      }
+      debug("socket.message", {
+        bytes: terminalMessageBytes(message),
+        messageType: message.type,
+        receivedScrollback: receivedScrollbackRef.current,
+        showingCachedScrollback: showingCachedScrollbackRef.current,
+      });
 
       if (message.type === "scrollback") {
         receivedScrollbackRef.current = true;
@@ -657,6 +709,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
         terminal.clear();
         if (message.data) terminal.write(message.data);
         writeCachedScrollback(window.sessionStorage, sessionId, message.data);
+        debug("scrollback.applied", { bytes: message.data.length });
         return;
       }
 
@@ -664,6 +717,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
         if (showingCachedScrollbackRef.current && !receivedScrollbackRef.current) {
           showingCachedScrollbackRef.current = false;
           terminal.clear();
+          debug("cache.cleared_for_live_output", { bytes: message.data.length });
         }
         terminal.write(message.data);
         return;
@@ -672,23 +726,35 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       if (message.type === "error") {
         setStatus(message.error);
         terminal.writeln(`\r\n${message.error}`);
+        debug("terminal.error", { error: message.error });
         return;
       }
 
       setStatus("Terminal exited.");
       terminal.writeln("\r\nTerminal exited.");
+      debug("terminal.exit");
     });
 
-    socket.addEventListener("close", () => {
+    socket.addEventListener("close", (event) => {
+      debug(isCurrentSocket() ? "socket.close" : "socket.close.stale", {
+        code: event.code,
+        readyState: webSocketReadyStateName(socket.readyState),
+        reason: event.reason,
+        wasClean: event.wasClean,
+      });
       handleConnectionFailure("Terminal disconnected.");
     });
 
     socket.addEventListener("error", () => {
+      debug(isCurrentSocket() ? "socket.error" : "socket.error.stale", {
+        readyState: webSocketReadyStateName(socket.readyState),
+      });
       handleConnectionFailure("Unable to connect to terminal.");
     });
 
     function handleConnectionFailure(message: string) {
       if (!isCurrentSocket()) return;
+      debug("connection.failure", { message });
       setStatus(message);
       if (authProbeStarted) return;
       authProbeStarted = true;
@@ -698,12 +764,15 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     async function verifyAuth(message: string) {
       try {
         await api.workspaces();
+        debug("auth.probe.ok");
       } catch (error) {
         if (!isCurrentSocket()) return;
         if (isUnauthorized(error)) {
+          debug("auth.probe.unauthorized");
           onUnauthorized?.();
           return;
         }
+        debug("auth.probe.failed", { error: error instanceof Error ? error.message : "unknown auth probe error" });
         setStatus(message);
       }
     }
@@ -713,6 +782,10 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     }
 
     return () => {
+      debug("effect.cleanup.start", {
+        pendingInputCount: pendingInputRef.current.length,
+        readyState: webSocketReadyStateName(socket.readyState),
+      });
       window.removeEventListener("resize", syncVisualViewport);
       window.visualViewport?.removeEventListener("resize", syncVisualViewport);
       window.visualViewport?.removeEventListener("scroll", syncVisualViewport);
@@ -745,6 +818,8 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       receivedScrollbackRef.current = false;
       socket.close();
       terminal.dispose();
+      debug("effect.cleanup.complete", { readyState: webSocketReadyStateName(socket.readyState) });
+      if (terminalDebugRef.current === debug) terminalDebugRef.current = null;
     };
   }, [clearLongPress, focusTerminal, onUnauthorized, retryNonce, sendTerminalInput, sessionId, updateCtrlActive, updateTerminalSelectionHandles]);
 
@@ -891,4 +966,22 @@ function parseTerminalMessage(data: unknown): TerminalSocketMessage | null {
     return null;
   }
   return null;
+}
+
+function webSocketReadyStateName(readyState: number | undefined): string {
+  if (readyState === 0) return "connecting";
+  if (readyState === 1) return "open";
+  if (readyState === 2) return "closing";
+  if (readyState === 3) return "closed";
+  return "unknown";
+}
+
+function socketDataBytes(data: unknown): number {
+  return typeof data === "string" ? data.length : 0;
+}
+
+function terminalMessageBytes(message: TerminalSocketMessage): number {
+  if ("data" in message) return message.data.length;
+  if ("error" in message) return message.error.length;
+  return 0;
 }

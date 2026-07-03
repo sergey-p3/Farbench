@@ -7,6 +7,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createDatabase } from "../../src/server/db.js";
 import type { TmuxManager } from "../../src/server/terminal/TmuxManager.js";
 import { registerTerminalSocket } from "../../src/server/ws/terminalSocket.js";
+import { TERMINAL_HISTORY_CACHE_BYTES } from "../../src/shared/terminalHistory.js";
 
 let dir: string | null = null;
 let server: WebSocketServer | null = null;
@@ -176,6 +177,118 @@ describe("terminal websocket", () => {
     socket.send(JSON.stringify({ type: "input", data: "echo typed\r" }));
 
     await expect.poll(() => writes).toEqual(["echo typed\r"]);
+  });
+
+  it("logs attach state when terminal debug logging is enabled", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_demo" });
+    const logs: unknown[] = [];
+    const clientCounts = [0, 1];
+    const fakeTerminal = {
+      pid: 12345,
+      cols: 80,
+      rows: 24,
+      kill() {},
+      onData() {},
+      onExit() {},
+      resize() {},
+      write() {},
+    } as unknown as pty.IPty;
+    const fakeTmux = {
+      attach: () => fakeTerminal,
+      capture: async () => "prompt",
+      clientCount: async () => clientCounts.shift() ?? 1,
+      scroll: async () => {},
+    } as unknown as TmuxManager;
+
+    server = new WebSocketServer({ port: 0 });
+    registerTerminalSocket(server, db, fakeTmux, {
+      debug: {
+        consoleLike: {
+          info(_label: string, payload: unknown) {
+            logs.push(payload);
+          },
+        },
+        enabled: true,
+        now: () => "2026-07-02T12:00:00.000Z",
+      },
+    });
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("missing websocket address");
+    socket = await openWebSocket(`ws://127.0.0.1:${address.port}`);
+
+    const replayMessage = nextMessage(socket);
+    socket.send(JSON.stringify({ type: "attach", sessionId: session.id, cols: 80, rows: 24 }));
+
+    await expect(replayMessage).resolves.toEqual({ type: "scrollback", data: "prompt" });
+    expect(logs).toEqual(expect.arrayContaining([
+      expect.objectContaining({
+        component: "TerminalSocket",
+        event: "socket.connection",
+        timestamp: "2026-07-02T12:00:00.000Z",
+      }),
+      expect.objectContaining({
+        cols: 80,
+        component: "TerminalSocket",
+        event: "attach.start",
+        rows: 24,
+        sessionId: session.id,
+        tmuxClientsBefore: 0,
+        tmuxName: "rd_demo",
+      }),
+      expect.objectContaining({
+        component: "TerminalSocket",
+        event: "attach.success",
+        pid: 12345,
+        sessionId: session.id,
+        tmuxClientsAfter: 1,
+        tmuxName: "rd_demo",
+      }),
+      expect.objectContaining({
+        bytes: 6,
+        component: "TerminalSocket",
+        event: "send",
+        messageType: "scrollback",
+        sessionId: session.id,
+        tmuxName: "rd_demo",
+      }),
+    ]));
+  });
+
+  it("caps replay scrollback before sending it to the browser", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_demo" });
+    const bigScrollback = `start${"x".repeat(TERMINAL_HISTORY_CACHE_BYTES + 1)}end`;
+    const fakeTerminal = {
+      kill() {},
+      onData() {},
+      onExit() {},
+      resize() {},
+      write() {},
+    } as unknown as pty.IPty;
+    const fakeTmux = {
+      attach: () => fakeTerminal,
+      capture: async () => bigScrollback,
+      scroll: async () => {},
+    } as unknown as TmuxManager;
+
+    server = new WebSocketServer({ port: 0 });
+    registerTerminalSocket(server, db, fakeTmux);
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("missing websocket address");
+    socket = await openWebSocket(`ws://127.0.0.1:${address.port}`);
+
+    const replayMessage = nextMessage(socket);
+    socket.send(JSON.stringify({ type: "attach", sessionId: session.id, cols: 80, rows: 24 }));
+
+    await expect(replayMessage).resolves.toEqual({
+      type: "scrollback",
+      data: bigScrollback.slice(-TERMINAL_HISTORY_CACHE_BYTES),
+    });
   });
 
   it("strips codex alt-screen and mouse-tracking sequences from replay and live output while preserving live colors", async () => {

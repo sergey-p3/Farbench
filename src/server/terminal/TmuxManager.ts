@@ -21,7 +21,7 @@ export class TmuxManager {
   async create(rootPath: string, type: SessionType): Promise<string> {
     this.assertAvailable();
     const tmuxName = `remote_dev_${nanoid(10)}`;
-    await runTmux(["new-session", "-d", "-s", tmuxName, "-c", rootPath, this.commandFor(type)]);
+    await runTmux(["new-session", "-d", "-s", tmuxName, "-c", rootPath, terminalCommand(this.commandFor(type))], terminalEnvironment());
     await this.configureHistoryLimit(tmuxName);
     return tmuxName;
   }
@@ -32,13 +32,13 @@ export class TmuxManager {
       cols,
       rows,
       cwd: process.cwd(),
-      env: process.env,
+      env: terminalEnvironment(),
     });
   }
 
   capture(tmuxName: string): Promise<string> {
     return this.configureHistoryLimit(tmuxName).then(() =>
-      runTmux(["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`, "-t", tmuxName]),
+      runTmux(["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`, "-t", tmuxName], terminalEnvironment()),
     );
   }
 
@@ -63,14 +63,35 @@ export class TmuxManager {
     await runTmux(["kill-session", "-t", tmuxName]);
   }
 
+  async clientCount(tmuxName: string): Promise<number> {
+    const output = await runTmux(["list-clients", "-t", tmuxName, "-F", "#{client_name}"], terminalEnvironment());
+    return output.split(/\r?\n/).filter((line) => line.trim()).length;
+  }
+
   private configureHistoryLimit(tmuxName: string): Promise<string> {
-    return runTmux(["set-option", "-t", tmuxName, "history-limit", String(TERMINAL_HISTORY_LINES)]);
+    return runTmux(["set-option", "-t", tmuxName, "history-limit", String(TERMINAL_HISTORY_LINES)], terminalEnvironment());
   }
 }
 
-function runTmux(args: string[]): Promise<string> {
+function terminalEnvironment(): NodeJS.ProcessEnv {
+  const env = { ...process.env };
+  delete env.NO_COLOR;
+  env.TERM = "xterm-256color";
+  env.COLORTERM = env.COLORTERM || "truecolor";
+  return env;
+}
+
+function terminalCommand(command: string): string {
+  return `stty -ixon 2>/dev/null; exec env -u NO_COLOR TERM=xterm-256color COLORTERM=${shellQuote(process.env.COLORTERM || "truecolor")} ${shellQuote(command)}`;
+}
+
+function shellQuote(value: string): string {
+  return `'${value.replace(/'/g, "'\\''")}'`;
+}
+
+function runTmux(args: string[], env: NodeJS.ProcessEnv = process.env): Promise<string> {
   return new Promise((resolve, reject) => {
-    const child = spawn("tmux", args, { stdio: ["ignore", "pipe", "pipe"] });
+    const child = spawn("tmux", args, { env, stdio: ["ignore", "pipe", "pipe"] });
     const stdout: Buffer[] = [];
     const stderr: Buffer[] = [];
 
