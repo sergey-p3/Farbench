@@ -669,6 +669,62 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   expect(closedKeyboardScroll.moveDefaultPrevented).toBe(true);
   expect(closedKeyboardScroll.activeElementLabel).not.toBe("Terminal input");
 
+  const mixedPointerTouchDrag = await page.evaluate(() => {
+    const host = document.querySelector(".terminal-host");
+    const viewport = document.querySelector(".terminal-host .xterm-viewport");
+    if (!(host instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
+      throw new Error("Terminal scroll elements not found");
+    }
+    viewport.scrollTop = viewport.scrollHeight;
+    const hostBox = host.getBoundingClientRect();
+    const target = document.elementFromPoint(hostBox.left + hostBox.width / 2, hostBox.top + hostBox.height / 2);
+    if (!(target instanceof Element)) {
+      throw new Error("Terminal touch target not found");
+    }
+    const before = viewport.scrollTop;
+    host.dispatchEvent(new PointerEvent("pointerdown", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: hostBox.left + hostBox.width / 2,
+      clientY: 500,
+      pointerId: 24,
+      pointerType: "touch",
+    }));
+    target.dispatchEvent(new TouchEvent("touchstart", {
+      bubbles: true,
+      cancelable: true,
+      touches: [new Touch({ identifier: 4, target, clientY: 500 })],
+    }));
+    const move = new PointerEvent("pointermove", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: hostBox.left + hostBox.width / 2,
+      clientY: 650,
+      pointerId: 24,
+      pointerType: "touch",
+    });
+    host.dispatchEvent(move);
+    host.dispatchEvent(new PointerEvent("pointerup", {
+      bubbles: true,
+      button: 0,
+      cancelable: true,
+      clientX: hostBox.left + hostBox.width / 2,
+      clientY: 650,
+      pointerId: 24,
+      pointerType: "touch",
+    }));
+    return {
+      after: viewport.scrollTop,
+      before,
+      moveDefaultPrevented: move.defaultPrevented,
+    };
+  });
+
+  expect(mixedPointerTouchDrag.after).toBeLessThan(mixedPointerTouchDrag.before);
+  expect(mixedPointerTouchDrag.moveDefaultPrevented).toBe(true);
+
   const explicitTap = await page.evaluate(() => {
     const host = document.querySelector(".terminal-host");
     if (!(host instanceof HTMLElement)) {

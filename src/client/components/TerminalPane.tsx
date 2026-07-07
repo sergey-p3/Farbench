@@ -3,7 +3,7 @@ import { FitAddon } from "xterm-addon-fit";
 import { Terminal } from "xterm";
 import { api, isUnauthorized } from "../api.js";
 import { copyTextToClipboard } from "../clipboard.js";
-import { createMomentumScrollGesture } from "../scrollMomentum.js";
+import { createMomentumScrollGesture, TOUCH_SCROLL_TAP_THRESHOLD_PX } from "../scrollMomentum.js";
 import { createTerminalGestureOwner } from "../terminalGestureOwner.js";
 import { scrollTerminalViewportByPixels } from "../terminalPixelScroller.js";
 import { terminalControlSequence, terminalKeyLabels, type TerminalToolbarKey } from "../terminalKeys.js";
@@ -69,7 +69,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const skipNextToolbarClickRef = useRef(false);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
-  const explicitTapStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const explicitTapStartRef = useRef<{ pointerId: number; pointerType: string; x: number; y: number } | null>(null);
   const selectionDragRef = useRef<{ anchor: TerminalBufferCell; handle: TerminalSelectionHandleKind; pointerId: number } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
   const [retryNonce, setRetryNonce] = useState(0);
@@ -80,6 +80,21 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
 
   const focusTerminal = useCallback(() => {
     window.setTimeout(() => terminalRef.current?.focus(), 0);
+  }, []);
+
+  const focusTerminalAtPointer = useCallback((clientX: number, clientY: number) => {
+    const terminal = terminalRef.current;
+    const textarea = terminal?.textarea;
+    const screen = containerRef.current?.querySelector(".xterm-screen");
+    if (textarea && screen instanceof HTMLElement) {
+      const screenRect = screen.getBoundingClientRect();
+      textarea.style.width = "20px";
+      textarea.style.height = "20px";
+      textarea.style.left = `${clientX - screenRect.left - 10}px`;
+      textarea.style.top = `${clientY - screenRect.top - 10}px`;
+      textarea.style.zIndex = "1000";
+    }
+    terminal?.focus();
   }, []);
 
   const updateCtrlActive = useCallback((next: boolean | ((current: boolean) => boolean)) => {
@@ -231,8 +246,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
 
   const handleTerminalPointerDown = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     setActionMenu(null);
-    focusTerminal();
-    explicitTapStartRef.current = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    explicitTapStartRef.current = { pointerId: event.pointerId, pointerType: event.pointerType, x: event.clientX, y: event.clientY };
     if (event.button !== 0 || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
 
     const start = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
@@ -243,7 +257,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
         openTerminalActionMenu(start.x, start.y);
       }
     }, LONG_PRESS_MS);
-  }, [focusTerminal, openTerminalActionMenu]);
+  }, [openTerminalActionMenu]);
 
   const handleTerminalPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const start = longPressStartRef.current;
@@ -268,11 +282,17 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const handleTerminalPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     const tapStart = explicitTapStartRef.current;
     if (tapStart?.pointerId === event.pointerId) {
-      terminalRef.current?.focus();
+      if (tapStart.pointerType === "touch" || tapStart.pointerType === "pen") {
+        event.preventDefault();
+        event.stopPropagation();
+        focusTerminalAtPointer(event.clientX, event.clientY);
+      } else {
+        terminalRef.current?.focus();
+      }
     }
     explicitTapStartRef.current = null;
     clearLongPress();
-  }, [clearLongPress]);
+  }, [clearLongPress, focusTerminalAtPointer]);
 
   const copyTerminalSelection = useCallback(async () => {
     const terminal = terminalRef.current;
@@ -584,20 +604,26 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
         return viewport instanceof HTMLElement ? viewport.clientHeight : touchScrollTarget.clientHeight;
       },
     });
+    let touchScrollStartY: number | null = null;
     const beginTouchScroll = (event: TouchEvent) => {
-      if (!gestureOwner.beginTouch()) return;
       const touchY = touchScrollY(event.touches);
-      if (touchY !== null) {
-        touchMomentum.begin(touchY);
+      if (touchY === null || !gestureOwner.beginTouch()) {
+        touchScrollStartY = null;
+        touchMomentum.cancel();
+        gestureOwner.endTouch();
         return;
       }
-      touchMomentum.cancel();
-      gestureOwner.endTouch();
+      touchScrollStartY = touchY;
+      touchMomentum.begin(touchY);
     };
     const moveTouchScroll = (event: TouchEvent) => {
-      if (!gestureOwner.canMoveTouch()) return;
       const nextY = touchScrollY(event.touches);
       if (nextY === null) return;
+      if (!gestureOwner.canMoveTouch()) {
+        if (touchScrollStartY === null || Math.abs(nextY - touchScrollStartY) < TOUCH_SCROLL_TAP_THRESHOLD_PX) return;
+        if (!gestureOwner.claimTouchMove()) return;
+        pointerMomentum.cancel();
+      }
       if (!touchMomentum.move(nextY)) return;
       explicitTapStartRef.current = null;
       clearLongPress();
@@ -606,10 +632,12 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       }
     };
     const resetTouchScroll = () => {
+      touchScrollStartY = null;
       touchMomentum.end();
       gestureOwner.endTouch();
     };
     const cancelTouchScroll = () => {
+      touchScrollStartY = null;
       touchMomentum.cancel();
       gestureOwner.endTouch();
     };
@@ -622,6 +650,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     const movePointerScroll = (event: PointerEvent) => {
       if (!gestureOwner.canMovePointer(event.pointerId)) return;
       if (!pointerMomentum.move(event.clientY)) return;
+      gestureOwner.notePointerMoved(event.pointerId);
       explicitTapStartRef.current = null;
       clearLongPress();
       if (event.cancelable) {
@@ -682,8 +711,12 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
         socket.send(JSON.stringify({ type: "input", data }));
       }
       setStatus(null);
-      terminal.focus();
-      focusTerminal();
+      // Touch browsers can focus this hidden textarea without opening the keyboard,
+      // leaving the terminal in a half-focused state that blocks first-drag scrolling.
+      if (navigator.maxTouchPoints === 0) {
+        terminal.focus();
+        focusTerminal();
+      }
     });
 
     socket.addEventListener("message", (event) => {
