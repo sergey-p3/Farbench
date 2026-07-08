@@ -985,3 +985,158 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   await expect(page.getByRole("heading", { level: 1, name: "No item open" })).toBeVisible();
   expect(deletedSessionIds).toEqual(["e2e-terminal-session"]);
 });
+
+test("terminal pane shows connection status before history arrives", async ({ page }) => {
+  await setupConnectionStatusFixture(page, {
+    id: "terminal-status-session",
+    workspaceId: "w1",
+    name: "bash session",
+    type: "bash",
+    tmuxName: "terminal-status-session",
+    status: "running",
+    createdAt: "2026-07-07T00:00:00.000Z",
+    lastAttachedAt: null,
+    lastActivityAt: null,
+    endedAt: null,
+  });
+
+  await page.goto("/");
+
+  await expect(page.getByText("Connecting to terminal...")).toBeVisible();
+  await page.evaluate(() => {
+    const openSocket = Reflect.get(window, "__openTerminalSocket") as () => void;
+    openSocket();
+  });
+  await expect(page.getByText("Loading terminal history...")).toBeVisible();
+  await page.evaluate(() => {
+    const sendScrollback = Reflect.get(window, "__sendTerminalScrollback") as (data: string) => void;
+    sendScrollback("terminal ready\r\n");
+  });
+  await expect(page.getByText("Loading terminal history...")).toHaveCount(0);
+});
+
+test("agent pane shows agent connection status before history arrives", async ({ page }) => {
+  await setupConnectionStatusFixture(page, {
+    id: "agent-status-session",
+    workspaceId: "w1",
+    name: "codex session",
+    type: "codex",
+    tmuxName: "agent-status-session",
+    status: "running",
+    createdAt: "2026-07-07T00:00:00.000Z",
+    lastAttachedAt: null,
+    lastActivityAt: null,
+    endedAt: null,
+  });
+
+  await page.goto("/");
+
+  await expect(page.getByText("Connecting to agent...")).toBeVisible();
+  await page.evaluate(() => {
+    const openSocket = Reflect.get(window, "__openTerminalSocket") as () => void;
+    openSocket();
+  });
+  await expect(page.getByText("Loading agent history...")).toBeVisible();
+});
+
+async function setupConnectionStatusFixture(page: Page, session: Session): Promise<void> {
+  await page.route("**/api/workspaces", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        workspaces: [{
+          id: "w1",
+          name: "connection-status-workspace",
+          rootPath: "/workspace",
+          status: "available",
+        }],
+      },
+    });
+  });
+  await page.route("**/api/workspaces/w1/sessions", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { sessions: [session] } });
+  });
+  await page.addInitScript((initialSession) => {
+    const itemKind = initialSession.type === "bash" ? "terminal" : "agent";
+    const itemId = `session:${initialSession.id}`;
+    window.localStorage.setItem("remote-dev-layout", JSON.stringify({
+      selectedWorkspaceId: "w1",
+      activePaneId: "main",
+      panes: [{
+        id: "main",
+        activeItemId: itemId,
+        itemIds: [itemId],
+      }],
+      items: [{
+        id: itemId,
+        workspaceId: "w1",
+        kind: itemKind,
+        title: initialSession.name,
+        status: initialSession.status,
+        sessionId: initialSession.id,
+        config: { runtime: initialSession.type },
+        createdAt: initialSession.createdAt,
+        lastActiveAt: initialSession.createdAt,
+      }],
+    }));
+
+    class ControlledTerminalSocket extends EventTarget {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSING = 2;
+      static readonly CLOSED = 3;
+      readonly CONNECTING = 0;
+      readonly OPEN = 1;
+      readonly CLOSING = 2;
+      readonly CLOSED = 3;
+      readonly binaryType = "blob";
+      readonly bufferedAmount = 0;
+      readonly extensions = "";
+      readonly protocol = "";
+      readyState = ControlledTerminalSocket.CONNECTING;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: ((event: Event) => void) | null = null;
+
+      constructor(readonly url: string) {
+        super();
+        const sockets = (Reflect.get(window, "__controlledTerminalSockets") as ControlledTerminalSocket[] | undefined) ?? [];
+        sockets.push(this);
+        Reflect.set(window, "__controlledTerminalSockets", sockets);
+      }
+
+      send() {}
+
+      close() {
+        this.readyState = ControlledTerminalSocket.CLOSED;
+        const event = new CloseEvent("close");
+        this.dispatchEvent(event);
+        this.onclose?.(event);
+      }
+    }
+
+    Reflect.set(window, "WebSocket", ControlledTerminalSocket);
+    Reflect.set(window, "__openTerminalSocket", () => {
+      const sockets = Reflect.get(window, "__controlledTerminalSockets") as ControlledTerminalSocket[] | undefined;
+      for (const socket of sockets ?? []) {
+        if (socket.readyState !== ControlledTerminalSocket.CONNECTING) continue;
+        socket.readyState = ControlledTerminalSocket.OPEN;
+        const event = new Event("open");
+        socket.dispatchEvent(event);
+        socket.onopen?.(event);
+      }
+    });
+    Reflect.set(window, "__sendTerminalScrollback", (data: string) => {
+      const sockets = Reflect.get(window, "__controlledTerminalSockets") as ControlledTerminalSocket[] | undefined;
+      for (const socket of sockets ?? []) {
+        if (socket.readyState !== ControlledTerminalSocket.OPEN) continue;
+        const event = new MessageEvent("message", {
+          data: JSON.stringify({ type: "scrollback", data }),
+        });
+        socket.dispatchEvent(event);
+        socket.onmessage?.(event);
+      }
+    });
+  }, session);
+}

@@ -32,7 +32,14 @@ export function ItemRenderer({ item, workspace, onOpenCreateSheet, onUnauthorize
   }
 
   if (item.kind === "terminal" || item.kind === "agent") {
-    return <TerminalPane sessionId={item.sessionId ?? null} onOpenCreateSheet={onOpenCreateSheet} onUnauthorized={onUnauthorized} />;
+    return (
+      <TerminalPane
+        displayKind={item.kind}
+        sessionId={item.sessionId ?? null}
+        onOpenCreateSheet={onOpenCreateSheet}
+        onUnauthorized={onUnauthorized}
+      />
+    );
   }
 
   if (item.kind === "files") {
