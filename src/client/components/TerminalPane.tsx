@@ -47,6 +47,8 @@ type ConnectionPhase = "connecting" | "attaching" | "loading-history" | null;
 const LONG_PRESS_MS = 550;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 const TERMINAL_ACTION_MENU_WIDTH_PX = 168;
+const TERMINAL_CONNECT_TIMEOUT_MS = 4_000;
+const TERMINAL_AUTO_RETRY_DELAYS_MS = [300, 1_000, 2_500];
 let nextTerminalPaneInstanceId = 1;
 
 export function terminalSocketUrl(locationLike: Pick<Location, "protocol" | "host"> = window.location): string {
@@ -68,6 +70,8 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
   const showingCachedScrollbackRef = useRef(false);
   const receivedScrollbackRef = useRef(false);
   const isCtrlActiveRef = useRef(false);
+  const autoReconnectAttemptsRef = useRef(0);
+  const autoReconnectSessionIdRef = useRef<string | null>(null);
   const skipNextToolbarClickRef = useRef(false);
   const longPressTimerRef = useRef<number | null>(null);
   const longPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
@@ -83,6 +87,11 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
 
   const focusTerminal = useCallback(() => {
     window.setTimeout(() => terminalRef.current?.focus(), 0);
+  }, []);
+
+  const retryConnection = useCallback(() => {
+    autoReconnectAttemptsRef.current = 0;
+    setRetryNonce((current) => current + 1);
   }, []);
 
   const focusTerminalAtPointer = useCallback((clientX: number, clientY: number) => {
@@ -461,6 +470,10 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     if (!sessionId || !containerRef.current) {
       return;
     }
+    if (autoReconnectSessionIdRef.current !== sessionId) {
+      autoReconnectSessionIdRef.current = sessionId;
+      autoReconnectAttemptsRef.current = 0;
+    }
 
     const debug = createTerminalDebugLogger({
       component: "TerminalPane",
@@ -482,7 +495,10 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     const socketUrl = terminalSocketUrl();
     const socket = new WebSocket(socketUrl);
     let authProbeStarted = false;
+    let connectTimeoutTimer: number | null = null;
     let deferredFitAndResizeTimer: number | null = null;
+    let reconnectScheduled = false;
+    let reconnectTimer: number | null = null;
 
     terminalDebugRef.current = debug;
     terminalRef.current = terminal;
@@ -547,6 +563,18 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       if (deferredFitAndResizeTimer === null) return;
       window.clearTimeout(deferredFitAndResizeTimer);
       deferredFitAndResizeTimer = null;
+    };
+
+    const clearConnectTimeout = () => {
+      if (connectTimeoutTimer === null) return;
+      window.clearTimeout(connectTimeoutTimer);
+      connectTimeoutTimer = null;
+    };
+
+    const clearReconnectTimer = () => {
+      if (reconnectTimer === null) return;
+      window.clearTimeout(reconnectTimer);
+      reconnectTimer = null;
     };
 
     const syncVisualViewport = () => {
@@ -703,11 +731,21 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     const selectionDisposable = terminal.onSelectionChange(updateTerminalSelectionHandles);
     const scrollDisposable = terminal.onScroll(updateTerminalSelectionHandles);
 
+    connectTimeoutTimer = window.setTimeout(() => {
+      if (!isCurrentSocket() || socket.readyState !== WebSocket.CONNECTING) return;
+      debug("socket.connect_timeout", {
+        attempt: autoReconnectAttemptsRef.current + 1,
+        timeoutMs: TERMINAL_CONNECT_TIMEOUT_MS,
+      });
+      handleConnectionFailure("Terminal connection timed out.");
+    }, TERMINAL_CONNECT_TIMEOUT_MS);
+
     socket.addEventListener("open", () => {
       if (!isCurrentSocket()) {
         debug("socket.open.stale", { readyState: webSocketReadyStateName(socket.readyState) });
         return;
       }
+      clearConnectTimeout();
       debug("socket.open", { readyState: webSocketReadyStateName(socket.readyState) });
       fit();
       setConnectionPhase("attaching");
@@ -745,6 +783,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       });
 
       if (message.type === "scrollback") {
+        autoReconnectAttemptsRef.current = 0;
         setConnectionPhase(null);
         receivedScrollbackRef.current = true;
         showingCachedScrollbackRef.current = false;
@@ -756,6 +795,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       }
 
       if (message.type === "output") {
+        autoReconnectAttemptsRef.current = 0;
         setConnectionPhase(null);
         if (showingCachedScrollbackRef.current && !receivedScrollbackRef.current) {
           showingCachedScrollbackRef.current = false;
@@ -800,11 +840,41 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     function handleConnectionFailure(message: string) {
       if (!isCurrentSocket()) return;
       debug("connection.failure", { message });
+      clearConnectTimeout();
+      if (scheduleAutomaticReconnect(message)) return;
       setConnectionPhase(null);
       setStatus(message);
       if (authProbeStarted) return;
       authProbeStarted = true;
       void verifyAuth(message);
+    }
+
+    function scheduleAutomaticReconnect(message: string): boolean {
+      if (reconnectScheduled) return true;
+      const retryDelayMs = TERMINAL_AUTO_RETRY_DELAYS_MS[autoReconnectAttemptsRef.current];
+      if (retryDelayMs === undefined) return false;
+
+      autoReconnectAttemptsRef.current += 1;
+      reconnectScheduled = true;
+      setStatus(null);
+      setConnectionPhase("connecting");
+      debug("connection.retry_scheduled", {
+        attempt: autoReconnectAttemptsRef.current + 1,
+        delayMs: retryDelayMs,
+        message,
+      });
+      if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
+        socket.close();
+      }
+      reconnectTimer = window.setTimeout(() => {
+        if (!isCurrentSocket()) return;
+        debug("connection.retry_start", { attempt: autoReconnectAttemptsRef.current + 1 });
+        setRetryNonce((current) => current + 1);
+      }, retryDelayMs);
+      if (authProbeStarted) return true;
+      authProbeStarted = true;
+      void verifyAuth(message);
+      return true;
     }
 
     async function verifyAuth(message: string) {
@@ -819,7 +889,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
           return;
         }
         debug("auth.probe.failed", { error: error instanceof Error ? error.message : "unknown auth probe error" });
-        setStatus(message);
+        if (!reconnectScheduled) setStatus(message);
       }
     }
 
@@ -835,6 +905,8 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       window.removeEventListener("resize", syncVisualViewport);
       window.visualViewport?.removeEventListener("resize", syncVisualViewport);
       window.visualViewport?.removeEventListener("scroll", syncVisualViewport);
+      clearConnectTimeout();
+      clearReconnectTimer();
       clearDeferredFitAndResize();
       resizeObserver.disconnect();
       touchMomentum.cancel();
@@ -887,7 +959,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
         <div className="panel-error terminal-status" role="status">
           <span>{status}</span>
           <div className="terminal-status-actions">
-            <button onClick={() => setRetryNonce((current) => current + 1)} type="button">Retry</button>
+            <button onClick={retryConnection} type="button">Retry</button>
             <button onClick={onOpenCreateSheet} type="button">Create new</button>
           </div>
         </div>

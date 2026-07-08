@@ -1015,6 +1015,41 @@ test("terminal pane shows connection status before history arrives", async ({ pa
   await expect(page.getByText("Loading terminal history...")).toHaveCount(0);
 });
 
+test("terminal pane retries when websocket handshake never opens", async ({ page }) => {
+  await setupConnectionStatusFixture(page, {
+    id: "terminal-retry-session",
+    workspaceId: "w1",
+    name: "retry bash session",
+    type: "bash",
+    tmuxName: "terminal-retry-session",
+    status: "running",
+    createdAt: "2026-07-07T00:00:00.000Z",
+    lastAttachedAt: null,
+    lastActivityAt: null,
+    endedAt: null,
+  });
+
+  await page.goto("/");
+
+  await expect(page.getByText("Connecting to terminal...")).toBeVisible();
+  await expect.poll(async () => page.evaluate(() => {
+    const sockets = Reflect.get(window, "__controlledTerminalSockets") as unknown[] | undefined;
+    return sockets?.length ?? 0;
+  }), { timeout: 6_000 }).toBeGreaterThan(1);
+  await expect(page.getByText("Connecting to terminal...")).toBeVisible();
+
+  await page.evaluate(() => {
+    const openSocket = Reflect.get(window, "__openTerminalSocket") as () => void;
+    openSocket();
+  });
+  await expect(page.getByText("Loading terminal history...")).toBeVisible();
+  await page.evaluate(() => {
+    const sendScrollback = Reflect.get(window, "__sendTerminalScrollback") as (data: string) => void;
+    sendScrollback("retried terminal ready\r\n");
+  });
+  await expect(page.getByText("Loading terminal history...")).toHaveCount(0);
+});
+
 test("agent pane shows agent connection status before history arrives", async ({ page }) => {
   await setupConnectionStatusFixture(page, {
     id: "agent-status-session",
