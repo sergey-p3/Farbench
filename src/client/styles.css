@@ -605,6 +605,48 @@ button.secondary-button {
   overscroll-behavior: contain;
 }
 
+.terminal-connection-status {
+  align-items: center;
+  background: rgb(13 20 27 / 82%);
+  border: 1px solid #344657;
+  border-radius: 6px;
+  color: #d7dee8;
+  display: flex;
+  font-size: 0.86rem;
+  font-weight: 700;
+  gap: 9px;
+  left: 50%;
+  max-width: min(320px, calc(100% - 32px));
+  padding: 10px 12px;
+  pointer-events: none;
+  position: absolute;
+  top: 50%;
+  transform: translate(-50%, -50%);
+  z-index: 12;
+}
+
+.terminal-connection-dot {
+  animation: terminal-connection-pulse 1.1s ease-in-out infinite;
+  background: #8eb8c3;
+  border-radius: 999px;
+  flex: 0 0 auto;
+  height: 8px;
+  width: 8px;
+}
+
+@keyframes terminal-connection-pulse {
+  0%,
+  100% {
+    opacity: 0.35;
+    transform: scale(0.8);
+  }
+
+  50% {
+    opacity: 1;
+    transform: scale(1);
+  }
+}
+
 .terminal-selection-handles {
   inset: 0;
   pointer-events: none;

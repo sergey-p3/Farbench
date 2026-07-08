@@ -23,6 +23,7 @@ import { TERMINAL_HISTORY_LINES } from "../../shared/terminalHistory.js";
 
 interface TerminalPaneProps {
   sessionId: string | null;
+  displayKind?: "terminal" | "agent";
   onOpenCreateSheet: () => void;
   onUnauthorized?: () => void;
 }
@@ -41,6 +42,7 @@ interface TerminalActionMenuState {
 }
 
 type TerminalSelectionHandleKind = "start" | "end";
+type ConnectionPhase = "connecting" | "attaching" | "loading-history" | null;
 
 const LONG_PRESS_MS = 550;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
@@ -52,7 +54,7 @@ export function terminalSocketUrl(locationLike: Pick<Location, "protocol" | "hos
   return `${protocol}//${locationLike.host}/ws/terminal`;
 }
 
-export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: TerminalPaneProps) {
+export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreateSheet, onUnauthorized }: TerminalPaneProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
@@ -72,6 +74,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
   const explicitTapStartRef = useRef<{ pointerId: number; pointerType: string; x: number; y: number } | null>(null);
   const selectionDragRef = useRef<{ anchor: TerminalBufferCell; handle: TerminalSelectionHandleKind; pointerId: number } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
+  const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [isCtrlActive, setIsCtrlActive] = useState(false);
   const [actionMenu, setActionMenu] = useState<TerminalActionMenuState | null>(null);
@@ -452,6 +455,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
 
   useEffect(() => {
     setStatus(null);
+    setConnectionPhase(null);
     updateCtrlActive(false);
 
     if (!sessionId || !containerRef.current) {
@@ -484,6 +488,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     terminalRef.current = terminal;
     fitAddonRef.current = fitAddon;
     socketRef.current = socket;
+    setConnectionPhase("connecting");
     debug("effect.start", {
       hasContainer: true,
       readyState: webSocketReadyStateName(socket.readyState),
@@ -508,6 +513,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     if (cachedScrollback) {
       showingCachedScrollbackRef.current = true;
       terminal.write(cachedScrollback);
+      setConnectionPhase(null);
     }
 
     const fit = () => {
@@ -704,7 +710,9 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       }
       debug("socket.open", { readyState: webSocketReadyStateName(socket.readyState) });
       fit();
+      setConnectionPhase("attaching");
       socket.send(JSON.stringify({ type: "attach", sessionId, cols: terminal.cols, rows: terminal.rows }));
+      setConnectionPhase("loading-history");
       debug("attach.sent", { cols: terminal.cols, pendingInputCount: pendingInputRef.current.length, rows: terminal.rows });
       for (const data of pendingInputRef.current.splice(0)) {
         debug("input.flushed", { bytes: data.length });
@@ -737,6 +745,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       });
 
       if (message.type === "scrollback") {
+        setConnectionPhase(null);
         receivedScrollbackRef.current = true;
         showingCachedScrollbackRef.current = false;
         terminal.clear();
@@ -747,6 +756,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       }
 
       if (message.type === "output") {
+        setConnectionPhase(null);
         if (showingCachedScrollbackRef.current && !receivedScrollbackRef.current) {
           showingCachedScrollbackRef.current = false;
           terminal.clear();
@@ -757,12 +767,14 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       }
 
       if (message.type === "error") {
+        setConnectionPhase(null);
         setStatus(message.error);
         terminal.writeln(`\r\n${message.error}`);
         debug("terminal.error", { error: message.error });
         return;
       }
 
+      setConnectionPhase(null);
       setStatus("Terminal exited.");
       terminal.writeln("\r\nTerminal exited.");
       debug("terminal.exit");
@@ -788,6 +800,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
     function handleConnectionFailure(message: string) {
       if (!isCurrentSocket()) return;
       debug("connection.failure", { message });
+      setConnectionPhase(null);
       setStatus(message);
       if (authProbeStarted) return;
       authProbeStarted = true;
@@ -849,6 +862,7 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       pendingInputRef.current = [];
       showingCachedScrollbackRef.current = false;
       receivedScrollbackRef.current = false;
+      setConnectionPhase(null);
       socket.close();
       terminal.dispose();
       debug("effect.cleanup.complete", { readyState: webSocketReadyStateName(socket.readyState) });
@@ -864,6 +878,8 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       </div>
     );
   }
+
+  const connectionStatus = status ? null : terminalConnectionStatusText(displayKind, connectionPhase);
 
   return (
     <div className="tool-panel terminal-pane" ref={rootRef}>
@@ -887,6 +903,12 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
         onPointerUp={handleTerminalPointerEnd}
       >
         <div className="terminal-host" ref={containerRef} />
+        {connectionStatus ? (
+          <div className="terminal-connection-status" role="status" aria-live="polite">
+            <span className="terminal-connection-dot" aria-hidden="true" />
+            <span>{connectionStatus}</span>
+          </div>
+        ) : null}
         {selectionHandles ? (
           <div className="terminal-selection-handles" aria-hidden={false}>
             <button
@@ -965,6 +987,14 @@ export function TerminalPane({ sessionId, onOpenCreateSheet, onUnauthorized }: T
       </div>
     </div>
   );
+}
+
+function terminalConnectionStatusText(displayKind: "terminal" | "agent", phase: ConnectionPhase): string | null {
+  if (!phase) return null;
+  const label = displayKind === "agent" ? "agent" : "terminal";
+  if (phase === "connecting") return `Connecting to ${label}...`;
+  if (phase === "attaching") return `Attaching ${label}...`;
+  return `Loading ${label} history...`;
 }
 
 function controlLetterKey(data: string): "c" | "d" | "l" | null {
