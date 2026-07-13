@@ -1067,15 +1067,56 @@ button.secondary-button {
 .git-files-view {
   display: grid;
   grid-row: 3;
-  grid-template-columns: minmax(210px, 290px) minmax(0, 1fr);
+  grid-template-columns: minmax(0, 1fr);
   min-height: 0;
   min-width: 0;
+}
+
+.git-files-view.git-file-selected {
+  grid-template-columns: minmax(210px, 290px) minmax(0, 1fr);
+}
+
+.git-files-view:not(.git-file-selected) .git-change-list {
+  border-right: 0;
 }
 
 .git-files-heading button {
   font-size: 0.75rem;
   min-height: 30px;
   padding: 5px 8px;
+}
+
+.git-back-button {
+  display: none;
+}
+
+.git-focus-actions {
+  align-items: center;
+  background: #f8fafb;
+  border-bottom: 1px solid #d8dee6;
+  display: flex;
+  gap: 6px;
+  min-width: 0;
+  overflow-x: auto;
+  padding: 6px 8px;
+}
+
+.git-focus-actions button {
+  background: #ffffff;
+  border: 1px solid #b9c6d1;
+  border-radius: 5px;
+  color: #29465d;
+  flex: 0 0 auto;
+  font-size: 0.72rem;
+  font-weight: 700;
+  min-height: 30px;
+  padding: 5px 8px;
+}
+
+.git-focus-actions button:last-child:not(:disabled) {
+  background: #edf6f8;
+  border-color: #8bb8c5;
+  color: #23677a;
 }
 
 .git-file-row {
@@ -1451,7 +1492,29 @@ button.secondary-button {
 
   .git-files-view {
     grid-template-columns: 1fr;
-    grid-template-rows: minmax(0, 38%) minmax(0, 1fr);
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .git-files-view.git-file-selected {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .git-file-selected .git-change-list {
+    display: none;
+  }
+
+  .git-back-button {
+    align-items: center;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 0.76rem;
+    min-height: 30px;
+    padding: 5px 8px;
+  }
+
+  .git-file-selected .diff-panel {
+    grid-template-rows: auto auto minmax(0, 1fr);
   }
 
   .git-view-tabs {
