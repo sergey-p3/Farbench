@@ -266,6 +266,12 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
   }
 
   const selectedChange = changes.find((change) => change.path === selectedPath) ?? null;
+  const changeGroups: Array<{ label: string | null; changes: DisplayedChange[] }> = selectedCommit
+    ? [{ label: null, changes }]
+    : [
+        { label: "Staged", changes: changes.filter((change) => change.staged) },
+        { label: "Unstaged", changes: changes.filter((change) => !change.staged) },
+      ];
 
   return (
     <div className="tool-panel git-workbench">
@@ -294,35 +300,53 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
             </div>
             {isLoading ? <p className="loading-state compact">Loading files...</p> : null}
             <div className="file-buttons">
-              {changes.map((change) => (
-                <div className="git-file-row" key={`${change.path}-${change.status}-${change.staged}`}>
-                  <button
-                    className={change.path === selectedPath ? "file-button selected" : "file-button"}
-                    disabled={!change.diffAvailable}
-                    onClick={() => void loadDiff(change)}
-                    title={change.path}
-                    type="button"
-                  >
-                    <span>{change.path}</span>
-                    <small>
-                      {selectedCommit ? change.status : `${change.staged ? "staged" : "unstaged"} · ${change.status}`}
-                      {"additions" in change ? ` · +${change.additions} -${change.deletions}` : ""}
-                    </small>
-                  </button>
-                  {!selectedCommit ? (
-                    <button
-                      aria-label={`${change.staged ? "Unstage" : "Stage"} ${change.path}`}
-                      className="git-stage-button"
-                      disabled={busyPath !== null}
-                      onClick={() => void setFileStaged(change)}
-                      title={change.staged ? "Unstage file" : "Stage file"}
-                      type="button"
-                    >
-                      {busyPath === change.path ? "Working…" : change.staged ? "Unstage" : "Stage"}
-                    </button>
+              {changeGroups.map((group) => group.changes.length > 0 ? (
+                <section className="git-change-group" key={group.label ?? "commit-files"}>
+                  {group.label ? (
+                    <div className="git-change-group-heading">
+                      <strong>{group.label}</strong>
+                      <span>{group.changes.length}</span>
+                    </div>
                   ) : null}
-                </div>
-              ))}
+                  {group.changes.map((change) => (
+                    <div className="git-file-row" key={`${change.path}-${change.status}-${change.staged}`}>
+                      <button
+                        className={change.path === selectedPath ? "file-button selected" : "file-button"}
+                        disabled={!change.diffAvailable}
+                        onClick={() => void loadDiff(change)}
+                        title={change.path}
+                        type="button"
+                      >
+                        <span>{change.path}</span>
+                        <small>{change.status}</small>
+                      </button>
+                      <span className="git-file-row-actions">
+                        {"additions" in change ? (
+                          <span
+                            aria-label={`${change.additions} lines added, ${change.deletions} lines removed`}
+                            className="git-file-line-stats"
+                          >
+                            <span className="git-additions">+{change.additions}</span>
+                            <span className="git-deletions">-{change.deletions}</span>
+                          </span>
+                        ) : null}
+                        {!selectedCommit ? (
+                          <button
+                            aria-label={`${change.staged ? "Unstage" : "Stage"} ${change.path}`}
+                            className="git-stage-button"
+                            disabled={busyPath !== null}
+                            onClick={() => void setFileStaged(change)}
+                            title={change.staged ? "Unstage file" : "Stage file"}
+                            type="button"
+                          >
+                            {busyPath === change.path ? "Working…" : change.staged ? "− Unstage" : "+ Stage"}
+                          </button>
+                        ) : null}
+                      </span>
+                    </div>
+                  ))}
+                </section>
+              ) : null)}
             </div>
             {changes.length === 0 && !isLoading ? <p className="empty-state">No changes.</p> : null}
           </aside>
@@ -344,7 +368,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
                   onClick={() => void setFileStaged(selectedChange)}
                   type="button"
                 >
-                  {busyPath === selectedChange.path ? "Working…" : selectedChange.staged ? "Unstage" : "Stage"}
+                  {busyPath === selectedChange.path ? "Working…" : selectedChange.staged ? "− Unstage" : "+ Stage"}
                 </button>
               ) : null}
             </div>

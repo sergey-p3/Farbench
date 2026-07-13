@@ -1165,6 +1165,74 @@ button.secondary-button {
   grid-template-columns: minmax(0, 1fr) auto;
 }
 
+.git-change-group {
+  display: grid;
+  gap: 6px;
+  min-width: 0;
+}
+
+.git-change-group + .git-change-group {
+  margin-top: 5px;
+}
+
+.git-change-group-heading {
+  align-items: center;
+  color: #526171;
+  display: flex;
+  font-size: 0.72rem;
+  justify-content: space-between;
+  padding: 3px 2px 1px;
+  text-transform: uppercase;
+}
+
+.git-change-group-heading span {
+  background: #e8edf1;
+  border-radius: 999px;
+  color: #536171;
+  min-width: 22px;
+  padding: 2px 6px;
+  text-align: center;
+}
+
+.git-file-row .file-button {
+  overflow-x: auto;
+  overscroll-behavior-inline: contain;
+  scrollbar-color: #aebbc6 transparent;
+  scrollbar-width: thin;
+  touch-action: pan-x pan-y;
+}
+
+.git-file-row .file-button > span,
+.git-file-row .file-button > small {
+  min-width: 100%;
+  overflow: visible;
+  text-overflow: clip;
+  width: max-content;
+}
+
+.git-file-row-actions {
+  align-items: stretch;
+  background: #ffffff;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 5px;
+  position: sticky;
+  right: 0;
+}
+
+.git-file-line-stats {
+  align-content: center;
+  background: #f8fafb;
+  border: 1px solid #dce3e9;
+  border-radius: 6px;
+  display: grid;
+  font-size: 0.72rem;
+  gap: 2px;
+  min-width: 48px;
+  padding: 4px 7px;
+  text-align: right;
+}
+
 .git-stage-button {
   background: #edf6f8;
   border: 1px solid #9bbdc5;
