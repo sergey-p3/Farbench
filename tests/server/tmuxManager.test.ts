@@ -48,6 +48,19 @@ describe("TmuxManager", () => {
       expect.any(Object),
     );
   });
+
+  it("can capture history without duplicating the visible pane", async () => {
+    const { TmuxManager } = await import("../../src/server/terminal/TmuxManager.js");
+    const tmux = new TmuxManager();
+
+    await tmux.capture("remote_dev_test", true);
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "tmux",
+      ["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`, "-E", "-1", "-t", "remote_dev_test"],
+      expect.any(Object),
+    );
+  });
 });
 
 function fakeSuccessfulChild() {

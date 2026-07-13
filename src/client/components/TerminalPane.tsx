@@ -17,8 +17,8 @@ import {
   type TerminalSelectionHandleLayout,
 } from "../terminalSelection.js";
 import { terminalKeyboardChromeInset, terminalViewportFitDelayMs } from "../terminalViewport.js";
-import { readCachedScrollback, writeCachedScrollback } from "../terminalScrollbackCache.js";
 import { createTerminalDebugLogger, type TerminalDebugLogger } from "../terminalDebug.js";
+import { createTerminalWriteQueue, terminalHistoryReplay } from "../terminalWriteQueue.js";
 import { TERMINAL_HISTORY_LINES } from "../../shared/terminalHistory.js";
 
 interface TerminalPaneProps {
@@ -67,7 +67,6 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
   const fitAddonRef = useRef<FitAddon | null>(null);
   const terminalDebugRef = useRef<TerminalDebugLogger | null>(null);
   const pendingInputRef = useRef<string[]>([]);
-  const showingCachedScrollbackRef = useRef(false);
   const receivedScrollbackRef = useRef(false);
   const isCtrlActiveRef = useRef(false);
   const autoReconnectAttemptsRef = useRef(0);
@@ -510,10 +509,10 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       readyState: webSocketReadyStateName(socket.readyState),
       socketUrl,
     });
-    showingCachedScrollbackRef.current = false;
     receivedScrollbackRef.current = false;
     terminal.loadAddon(fitAddon);
     terminal.open(containerRef.current);
+    const writeQueue = createTerminalWriteQueue(terminal);
     debug("terminal.open", { cols: terminal.cols, rows: terminal.rows });
     terminal.attachCustomKeyEventHandler((event) => {
       if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "v") {
@@ -521,16 +520,6 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       }
       return true;
     });
-
-    // Paint the previous session view instantly so a reload shows history while the
-    // socket reconnects and the authoritative scrollback arrives.
-    const cachedScrollback = readCachedScrollback(window.sessionStorage, sessionId);
-    debug("cache.read", { bytes: cachedScrollback?.length ?? 0, hit: Boolean(cachedScrollback) });
-    if (cachedScrollback) {
-      showingCachedScrollbackRef.current = true;
-      terminal.write(cachedScrollback);
-      setConnectionPhase(null);
-    }
 
     const fit = () => {
       try {
@@ -779,17 +768,13 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
         bytes: terminalMessageBytes(message),
         messageType: message.type,
         receivedScrollback: receivedScrollbackRef.current,
-        showingCachedScrollback: showingCachedScrollbackRef.current,
       });
 
       if (message.type === "scrollback") {
         autoReconnectAttemptsRef.current = 0;
         setConnectionPhase(null);
         receivedScrollbackRef.current = true;
-        showingCachedScrollbackRef.current = false;
-        terminal.clear();
-        if (message.data) terminal.write(message.data);
-        writeCachedScrollback(window.sessionStorage, sessionId, message.data);
+        writeQueue.replace(terminalHistoryReplay(message.data, terminal.rows));
         debug("scrollback.applied", { bytes: message.data.length });
         return;
       }
@@ -797,26 +782,21 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       if (message.type === "output") {
         autoReconnectAttemptsRef.current = 0;
         setConnectionPhase(null);
-        if (showingCachedScrollbackRef.current && !receivedScrollbackRef.current) {
-          showingCachedScrollbackRef.current = false;
-          terminal.clear();
-          debug("cache.cleared_for_live_output", { bytes: message.data.length });
-        }
-        terminal.write(message.data);
+        writeQueue.write(message.data);
         return;
       }
 
       if (message.type === "error") {
         setConnectionPhase(null);
         setStatus(message.error);
-        terminal.writeln(`\r\n${message.error}`);
+        writeQueue.write(`\r\n${message.error}\r\n`);
         debug("terminal.error", { error: message.error });
         return;
       }
 
       setConnectionPhase(null);
       setStatus("Terminal exited.");
-      terminal.writeln("\r\nTerminal exited.");
+      writeQueue.write("\r\nTerminal exited.\r\n");
       debug("terminal.exit");
     });
 
@@ -932,10 +912,10 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       if (terminalRef.current === terminal) terminalRef.current = null;
       if (fitAddonRef.current === fitAddon) fitAddonRef.current = null;
       pendingInputRef.current = [];
-      showingCachedScrollbackRef.current = false;
       receivedScrollbackRef.current = false;
       setConnectionPhase(null);
       socket.close();
+      writeQueue.dispose();
       terminal.dispose();
       debug("effect.cleanup.complete", { readyState: webSocketReadyStateName(socket.readyState) });
       if (terminalDebugRef.current === debug) terminalDebugRef.current = null;

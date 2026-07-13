@@ -30,8 +30,6 @@ export function registerTerminalSocket(
     let terminal: pty.IPty | null = null;
     let attachedSessionId: string | null = null;
     let attachedTmuxName: string | null = null;
-    let outputSanitizer = new TerminalOutputSanitizer("bash");
-    let hasLiveActivity = false;
     const detachedTerminals = new WeakSet<pty.IPty>();
 
     debug.log("socket.connection", {
@@ -76,8 +74,6 @@ export function registerTerminalSocket(
       terminal = null;
       attachedSessionId = null;
       attachedTmuxName = null;
-      outputSanitizer = new TerminalOutputSanitizer("bash");
-      hasLiveActivity = false;
       debug.log("detach.complete", { pid: detachedTerminal.pid, reason });
     };
 
@@ -114,8 +110,6 @@ export function registerTerminalSocket(
         }
 
         detach("attach.replace");
-        outputSanitizer = new TerminalOutputSanitizer(session.type);
-
         const tmuxClientsBefore = await debugTmuxClientCount(tmux, session.tmuxName, debug);
         debug.log("attach.start", {
           cols: message.cols,
@@ -150,7 +144,9 @@ export function registerTerminalSocket(
           tmuxClientsAfter,
           tmuxName: session.tmuxName,
         });
-        hasLiveActivity = false;
+        const outputSanitizer = new TerminalOutputSanitizer(session.type);
+        const bufferedOutput: string[] = [];
+        let historySent = false;
         db.touchSessionAttachment(session.id);
         terminal.onData((data) => {
           const cleanData = outputSanitizer.clean(data);
@@ -162,7 +158,19 @@ export function registerTerminalSocket(
             tmuxName: session.tmuxName,
           });
           if (cleanData) {
-            hasLiveActivity = true;
+            if (terminal !== attachedTerminal) return;
+            // The first tmux redraw contains the visible pane. Keep it behind
+            // captured history so xterm receives one correctly ordered stream.
+            if (!historySent) {
+              bufferedOutput.push(cleanData);
+              debug.log("pty.data.buffered", {
+                bufferedChunks: bufferedOutput.length,
+                bytes: cleanData.length,
+                sessionId: attachedSessionId,
+                tmuxName: session.tmuxName,
+              });
+              return;
+            }
             send({ type: "output", data: cleanData });
           }
         });
@@ -186,12 +194,11 @@ export function registerTerminalSocket(
           }
         });
         debug.log("capture.start", { sessionId: session.id, tmuxName: session.tmuxName });
-        void tmux.capture(session.tmuxName)
+        void tmux.capture(session.tmuxName, true)
           .then((scrollback) => {
-            if (terminal !== attachedTerminal || hasLiveActivity) {
+            if (terminal !== attachedTerminal) {
               debug.log("capture.skipped", {
                 current: terminal === attachedTerminal,
-                hasLiveActivity,
                 rawBytes: scrollback.length,
                 sessionId: session.id,
                 tmuxName: session.tmuxName,
@@ -206,6 +213,14 @@ export function registerTerminalSocket(
               tmuxName: session.tmuxName,
             });
             send({ type: "scrollback", data: replay });
+            historySent = true;
+            for (const data of bufferedOutput.splice(0)) {
+              send({ type: "output", data });
+            }
+            debug.log("capture.output_flushed", {
+              sessionId: session.id,
+              tmuxName: session.tmuxName,
+            });
           })
           .catch((error: unknown) => {
             debug.log("capture.failed", {
@@ -213,6 +228,12 @@ export function registerTerminalSocket(
               sessionId: session.id,
               tmuxName: session.tmuxName,
             });
+            if (terminal !== attachedTerminal) return;
+            send({ type: "scrollback", data: "" });
+            historySent = true;
+            for (const data of bufferedOutput.splice(0)) {
+              send({ type: "output", data });
+            }
           });
         return;
       }
@@ -223,7 +244,6 @@ export function registerTerminalSocket(
       }
 
       if (message.type === "input") {
-        hasLiveActivity = true;
         debug.log("input", { bytes: message.data.length, sessionId: attachedSessionId, tmuxName: attachedTmuxName });
         terminal.write(message.data);
         return;
