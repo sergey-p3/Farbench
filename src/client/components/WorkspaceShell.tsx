@@ -29,6 +29,7 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
   const [isCreateOpen, setIsCreateOpen] = useState(false);
   const [isTopMenuOpen, setIsTopMenuOpen] = useState(false);
   const [isTopMenuPinned, setIsTopMenuPinned] = useState(false);
+  const [isShortcutRailOpen, setIsShortcutRailOpen] = useState(true);
   const requestRef = useRef(0);
   const selectedWorkspaceIdRef = useRef(layout.selectedWorkspaceId);
 
@@ -176,6 +177,18 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
     <main className="app-shell item-shell">
       <section className={`workspace-panel focused-shell ${isTopMenuPinned ? "top-menu-pinned" : "top-menu-floating"}`} aria-label="Workspace">
         <header className={`top-bar shell-top-bar ${isTopMenuExpanded ? "top-menu-expanded" : "top-menu-collapsed"}`}>
+          {isTopMenuExpanded ? (
+            <>
+              <button className="icon-button" aria-label="Open item switcher" onClick={() => setIsSwitcherOpen(true)} type="button">⇄</button>
+              <div className="top-bar-title">
+                <p className="eyebrow">{selectedWorkspace?.name ?? "Workspace"}</p>
+                <h1>{active?.title ?? "No item open"}</h1>
+              </div>
+              <span className="session-chip">{active ? `${active.kind} · ${active.status}` : "Empty"}</span>
+              <button className="icon-button" aria-label={isTopMenuPinned ? "Unpin top menu" : "Pin top menu"} onClick={toggleTopMenuPin} type="button">⌖</button>
+              <button className="icon-button primary-icon" aria-label="Create item" onClick={() => setIsCreateOpen(true)} type="button">+</button>
+            </>
+          ) : null}
           <button
             className="icon-button top-menu-toggle"
             aria-expanded={isTopMenuExpanded}
@@ -192,18 +205,6 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
           >
             ☰
           </button>
-          {isTopMenuExpanded ? (
-            <>
-              <button className="icon-button" aria-label="Open item switcher" onClick={() => setIsSwitcherOpen(true)} type="button">⇄</button>
-              <div className="top-bar-title">
-                <p className="eyebrow">{selectedWorkspace?.name ?? "Workspace"}</p>
-                <h1>{active?.title ?? "No item open"}</h1>
-              </div>
-              <span className="session-chip">{active ? `${active.kind} · ${active.status}` : "Empty"}</span>
-              <button className="icon-button" aria-label={isTopMenuPinned ? "Unpin top menu" : "Pin top menu"} onClick={toggleTopMenuPin} type="button">⌖</button>
-              <button className="icon-button primary-icon" aria-label="Create item" onClick={() => setIsCreateOpen(true)} type="button">+</button>
-            </>
-          ) : null}
         </header>
 
         {error ? (
@@ -222,24 +223,39 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
         />
 
         {visibleItems.length > 0 ? (
-          <nav className="tab-shortcut-rail" aria-label="Open item shortcuts">
-            {visibleItems.map((item) => {
-              const isActive = item.id === active?.id;
-              return (
-                <button
-                  aria-current={isActive ? "page" : undefined}
-                  aria-label={`Switch to ${item.title}`}
-                  aria-pressed={isActive}
-                  className={`tab-shortcut-button ${isActive ? "active" : ""}`}
-                  key={item.id}
-                  onClick={() => focusExistingItem(item.id)}
-                  title={item.title}
-                  type="button"
-                >
-                  {shortcutLabel(item)}
-                </button>
-              );
-            })}
+          <nav className={`tab-shortcut-rail ${isShortcutRailOpen ? "" : "collapsed"}`} aria-label="Open item shortcuts">
+            <button
+              aria-controls="tab-shortcut-list"
+              aria-expanded={isShortcutRailOpen}
+              aria-label={isShortcutRailOpen ? "Hide shortcut tabs" : "Show shortcut tabs"}
+              className="tab-shortcut-rail-toggle"
+              onClick={() => setIsShortcutRailOpen((current) => !current)}
+              title={isShortcutRailOpen ? "Hide shortcut tabs" : "Show shortcut tabs"}
+              type="button"
+            >
+              {isShortcutRailOpen ? "›" : "‹"}
+            </button>
+            {isShortcutRailOpen ? (
+              <div className="tab-shortcut-list" id="tab-shortcut-list">
+                {visibleItems.map((item) => {
+                  const isActive = item.id === active?.id;
+                  return (
+                    <button
+                      aria-current={isActive ? "page" : undefined}
+                      aria-label={`Switch to ${item.title}`}
+                      aria-pressed={isActive}
+                      className={`tab-shortcut-button ${isActive ? "active" : ""}`}
+                      key={item.id}
+                      onClick={() => focusExistingItem(item.id)}
+                      title={item.title}
+                      type="button"
+                    >
+                      {shortcutLabel(item)}
+                    </button>
+                  );
+                })}
+              </div>
+            ) : null}
           </nav>
         ) : null}
       </section>

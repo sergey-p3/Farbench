@@ -238,6 +238,8 @@ test("right-side shortcut rail switches between persisted open items", async ({ 
   const shortcutRail = page.getByLabel("Open item shortcuts");
   await expect(shortcutRail).toBeVisible();
   await expect(shortcutRail).toHaveCSS("overflow-y", "auto");
+  const expandedRailBox = await shortcutRail.boundingBox();
+  expect(expandedRailBox).not.toBeNull();
   await expect(shortcutRail.getByRole("button", { name: "Switch to Files" })).toBeVisible();
   await expect(shortcutRail.getByRole("button", { name: "Switch to Git diff" })).toBeVisible();
   await expect(shortcutRail.getByRole("button", { name: "Switch to Preview :3000" })).toHaveAttribute("aria-current", "page");
@@ -246,6 +248,16 @@ test("right-side shortcut rail switches between persisted open items", async ({ 
   await openTopMenu(page);
   await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
   await expect(shortcutRail.getByRole("button", { name: "Switch to Files" })).toHaveAttribute("aria-current", "page");
+
+  await shortcutRail.getByRole("button", { name: "Hide shortcut tabs" }).click();
+  await expect(shortcutRail.getByRole("button", { name: "Switch to Files" })).toHaveCount(0);
+  await expect(shortcutRail.getByRole("button", { name: "Show shortcut tabs" })).toBeVisible();
+  const collapsedRailBox = await shortcutRail.boundingBox();
+  expect(collapsedRailBox).not.toBeNull();
+  expect(collapsedRailBox!.width).toBeLessThan(expandedRailBox!.width);
+
+  await shortcutRail.getByRole("button", { name: "Show shortcut tabs" }).click();
+  await expect(shortcutRail.getByRole("button", { name: "Switch to Files" })).toBeVisible();
 });
 
 test("top menu collapses into an overlay and can be pinned into layout", async ({ page }) => {
@@ -271,9 +283,14 @@ test("top menu collapses into an overlay and can be pinned into layout", async (
   await expect(page.getByRole("button", { name: "Pin top menu" })).toHaveCount(0);
 
   await collapsedMenuButton.click();
-  await expect(page.getByRole("button", { name: "Hide top menu" })).toBeVisible();
+  const expandedMenuButton = page.getByRole("button", { name: "Hide top menu" });
+  await expect(expandedMenuButton).toBeVisible();
   await expect(page.getByRole("button", { name: "Pin top menu" })).toBeVisible();
   await expect(page.getByRole("button", { name: "Create item" })).toBeVisible();
+  const expandedMenuButtonBox = await expandedMenuButton.boundingBox();
+  expect(expandedMenuButtonBox).not.toBeNull();
+  expect(Math.round(expandedMenuButtonBox!.x)).toBe(Math.round(collapsedMenuButtonBox.x));
+  expect(Math.round(expandedMenuButtonBox!.y)).toBe(Math.round(collapsedMenuButtonBox.y));
 
   const paneBoxOverlay = await pane.boundingBox();
   expect(paneBoxOverlay).not.toBeNull();
