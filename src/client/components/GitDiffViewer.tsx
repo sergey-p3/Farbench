@@ -195,6 +195,7 @@ export const GitDiffViewer = forwardRef<GitDiffViewerHandle, GitDiffViewerProps>
           options={{
             automaticLayout: true,
             ...diffEditorOptionsForMode(mode),
+            domReadOnly: true,
             fontSize: 13,
             minimap: { enabled: false },
             originalEditable: false,

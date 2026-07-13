@@ -8,7 +8,8 @@ import type {
   Workspace,
 } from "../../shared/types.js";
 import { api, isUnauthorized } from "../api.js";
-import { GitDiffViewer } from "./GitDiffViewer.js";
+import { nextDiffFileIndex } from "../gitDiffView.js";
+import { GitDiffViewer, type GitDiffViewerHandle } from "./GitDiffViewer.js";
 
 interface GitPanelProps {
   workspace: Workspace | null;
@@ -21,6 +22,7 @@ type DisplayedChange = GitChange | GitCommitFile;
 export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
   const workspaceIdRef = useRef<string | null>(workspace?.id ?? null);
   const selectedPathRef = useRef<string | null>(null);
+  const diffViewerRef = useRef<GitDiffViewerHandle | null>(null);
   const repositoryRequestRef = useRef(0);
   const diffRequestRef = useRef(0);
   const [activeView, setActiveView] = useState<GitView>("files");
@@ -33,6 +35,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
   const [detailCommit, setDetailCommit] = useState<GitCommit | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [diff, setDiff] = useState<GitFileDiffResponse | null>(null);
+  const [initialChangeDirection, setInitialChangeDirection] = useState<1 | -1 | null>(null);
   const [isLoading, setIsLoading] = useState(false);
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
   const [busyPath, setBusyPath] = useState<string | null>(null);
@@ -129,7 +132,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
     }
   }
 
-  async function loadDiff(change: DisplayedChange): Promise<void> {
+  async function loadDiff(change: DisplayedChange, boundaryChangeDirection: 1 | -1 | null = null): Promise<void> {
     if (!workspace || !change.diffAvailable) return;
     const workspaceId = workspace.id;
     const path = change.path;
@@ -137,17 +140,30 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
     setSelectedPath(path);
     selectedPathRef.current = path;
     setDiff(null);
+    setInitialChangeDirection(null);
     setIsLoadingDiff(true);
     setError(null);
     try {
       const nextDiff = await api.gitFileDiff(workspaceId, path, selectedCommit?.id);
       if (!isCurrentDiffRequest(workspaceId, path, requestId)) return;
       setDiff(nextDiff);
+      setInitialChangeDirection(boundaryChangeDirection);
     } catch (diffError) {
       if (isCurrentDiffRequest(workspaceId, path, requestId)) showError(diffError, "Unable to load diff");
     } finally {
       if (isCurrentDiffRequest(workspaceId, path, requestId)) setIsLoadingDiff(false);
     }
+  }
+
+  function loadAdjacentFile(direction: 1 | -1, boundaryChangeDirection: 1 | -1 | null = null) {
+    const nextIndex = nextDiffFileIndex(changes, selectedPath, direction);
+    if (nextIndex === null) return;
+    void loadDiff(changes[nextIndex], boundaryChangeDirection);
+  }
+
+  function showAdjacentChange(direction: 1 | -1) {
+    if (diffViewerRef.current?.showAdjacentChange(direction)) return;
+    loadAdjacentFile(direction, direction);
   }
 
   async function setFileStaged(change: DisplayedChange) {
@@ -228,6 +244,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
     selectedPathRef.current = null;
     setSelectedPath(null);
     setDiff(null);
+    setInitialChangeDirection(null);
     setIsLoadingDiff(false);
   }
 
@@ -248,6 +265,8 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
     return <div className="tool-panel empty-tool"><p className="empty-state">Select a workspace to inspect Git.</p></div>;
   }
 
+  const selectedChange = changes.find((change) => change.path === selectedPath) ?? null;
+
   return (
     <div className="tool-panel git-workbench">
       <nav aria-label="Git views" className="git-view-tabs" role="tablist">
@@ -263,7 +282,11 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
       {error ? <p className="panel-error git-panel-error" role="alert">{error}</p> : null}
 
       {activeView === "files" ? (
-        <div className="git-files-view" role="tabpanel" aria-label="Files view">
+        <div
+          className={selectedPath ? "git-files-view git-file-selected" : "git-files-view"}
+          role="tabpanel"
+          aria-label="Files view"
+        >
           <aside className="git-change-list" aria-label="Git changes">
             <div className="panel-toolbar git-files-heading">
               <strong>{selectedCommit ? `Files in ${selectedCommit.shortId}` : "Working changes"}</strong>
@@ -304,10 +327,35 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
             {changes.length === 0 && !isLoading ? <p className="empty-state">No changes.</p> : null}
           </aside>
 
-          <section className="diff-panel" aria-label="Git diff">
-            <div className="panel-toolbar"><strong>{selectedPath ?? "No file selected"}</strong></div>
-            <GitDiffViewer diff={diff} isLoading={isLoadingDiff} />
-          </section>
+          {selectedPath ? <section className="diff-panel" aria-label="Git diff">
+            <div className="panel-toolbar">
+              <button className="git-back-button" onClick={clearSelection} type="button">← Back to files</button>
+              <strong>{selectedPath}</strong>
+            </div>
+            <div className="git-focus-actions" aria-label="Git diff navigation">
+              <button disabled={isLoadingDiff} onClick={() => showAdjacentChange(-1)} title="Previous change" type="button">↑ Change</button>
+              <button disabled={isLoadingDiff} onClick={() => showAdjacentChange(1)} title="Next change" type="button">↓ Change</button>
+              <button disabled={isLoadingDiff} onClick={() => loadAdjacentFile(-1)} title="Previous file" type="button">← File</button>
+              <button disabled={isLoadingDiff} onClick={() => loadAdjacentFile(1)} title="Next file" type="button">File →</button>
+              <button disabled={!diff || isLoadingDiff} onClick={() => void diffViewerRef.current?.copyLocation()} type="button">Copy reference</button>
+              {!selectedCommit && selectedChange ? (
+                <button
+                  disabled={busyPath !== null}
+                  onClick={() => void setFileStaged(selectedChange)}
+                  type="button"
+                >
+                  {busyPath === selectedChange.path ? "Working…" : selectedChange.staged ? "Unstage" : "Stage"}
+                </button>
+              ) : null}
+            </div>
+            <GitDiffViewer
+              diff={diff}
+              initialChangeDirection={initialChangeDirection}
+              isLoading={isLoadingDiff}
+              onInitialChangeShown={() => setInitialChangeDirection(null)}
+              ref={diffViewerRef}
+            />
+          </section> : null}
         </div>
       ) : null}
 
