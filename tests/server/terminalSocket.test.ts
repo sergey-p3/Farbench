@@ -179,6 +179,55 @@ describe("terminal websocket", () => {
     await expect.poll(() => writes).toEqual(["echo typed\r"]);
   });
 
+  it("sends real history before the attached terminal redraw", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    const db = createDatabase(join(dir, "state.db"));
+    const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
+    const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_demo" });
+    const messages: unknown[] = [];
+    let onData: ((data: string) => void) | null = null;
+    let resolveCapture: ((data: string) => void) | null = null;
+    const capture = new Promise<string>((resolve) => {
+      resolveCapture = resolve;
+    });
+    const fakeTerminal = {
+      kill() {},
+      onData(callback: (data: string) => void) {
+        onData = callback;
+      },
+      onExit() {},
+      resize() {},
+      write() {},
+    } as unknown as pty.IPty;
+    const fakeTmux = {
+      attach: () => fakeTerminal,
+      capture: (_tmuxName: string, historyOnly: boolean) => {
+        expect(historyOnly).toBe(true);
+        return capture;
+      },
+      scroll: async () => {},
+    } as unknown as TmuxManager;
+
+    server = new WebSocketServer({ port: 0 });
+    registerTerminalSocket(server, db, fakeTmux);
+    const address = server.address();
+    if (!address || typeof address === "string") throw new Error("missing websocket address");
+    socket = await openWebSocket(`ws://127.0.0.1:${address.port}`);
+    socket.on("message", (data) => messages.push(JSON.parse(data.toString())));
+
+    socket.send(JSON.stringify({ type: "attach", sessionId: session.id, cols: 80, rows: 24 }));
+    await expect.poll(() => onData).not.toBeNull();
+    onData?.("current screen");
+    await new Promise((resolve) => setTimeout(resolve, 20));
+    expect(messages).toEqual([]);
+
+    resolveCapture?.("real history");
+    await expect.poll(() => messages).toEqual([
+      { type: "scrollback", data: "real history" },
+      { type: "output", data: "current screen" },
+    ]);
+  });
+
   it("logs attach state when terminal debug logging is enabled", async () => {
     dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
     const db = createDatabase(join(dir, "state.db"));
