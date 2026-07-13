@@ -8,8 +8,13 @@ import { nanoid } from "nanoid";
 import type {
   FileReadResponse,
   FileResource,
+  GitBranch,
+  GitBranchesResponse,
+  GitCommit,
+  GitCommitFilesResponse,
   GitFileDiffKind,
   GitFileDiffResponse,
+  GitHistoryResponse,
   GitStatusResponse,
   PortPreview,
 } from "../../shared/types.js";
@@ -25,6 +30,7 @@ const noFollowReadWriteFlags = constants.O_RDWR | constants.O_NOFOLLOW;
 const noFollowDirectoryFlags = constants.O_RDONLY | constants.O_NOFOLLOW | constants.O_DIRECTORY;
 const maxTextFileBytes = 1_000_000;
 const binarySampleBytes = 8_192;
+const gitCommitPattern = /^[0-9a-f]{7,64}$/i;
 
 class GitFileDiffContentError extends Error {
   constructor(
@@ -346,6 +352,100 @@ export class LocalAgent implements AgentGateway {
     };
   }
 
+  async gitHistory(rootPath: string, requestedBranch?: string): Promise<GitHistoryResponse> {
+    const branches = await this.localGitBranchNames(rootPath);
+    const currentBranch = await this.currentGitBranch(rootPath);
+    const branch = requestedBranch ?? currentBranch;
+    if (!branch || !branches.includes(branch)) throw new Error("Branch not found");
+
+    const format = "%x1e%H%x00%h%x00%s%x00%B%x00%an%x00%ae%x00%aI%x00%cI%x00";
+    const { stdout } = await execFileAsync("git", ["log", `refs/heads/${branch}`, "--topo-order", `--format=${format}`, "--numstat"], {
+      cwd: rootPath,
+      maxBuffer: 20_000_000,
+    });
+    const commits: GitCommit[] = stdout
+      .split("\x1e")
+      .slice(1)
+      .map((record) => this.parseGitHistoryRecord(record))
+      .filter((commit): commit is GitCommit => commit !== null);
+    return { branch, commits };
+  }
+
+  async gitBranches(rootPath: string): Promise<GitBranchesResponse> {
+    const { stdout } = await execFileAsync(
+      "git",
+      ["for-each-ref", "--format=%(refname:short)%00%(HEAD)%00%(objectname)%00%(committerdate:iso-strict)", "refs/heads"],
+      { cwd: rootPath },
+    );
+    const rawBranches = stdout.split("\n").filter(Boolean).map((line) => {
+      const [name = "", head = "", lastCommitId = "", lastCommitAt = ""] = line.split("\x00");
+      return { name, current: head === "*", lastCommitId, lastCommitAt };
+    });
+    const currentBranch = rawBranches.find((branch) => branch.current)?.name ?? "";
+    const baseBranch = rawBranches.some((branch) => branch.name === "main")
+      ? "main"
+      : rawBranches.some((branch) => branch.name === "master")
+        ? "master"
+        : currentBranch || rawBranches[0]?.name || "";
+    const branches: GitBranch[] = await Promise.all(rawBranches.map(async (branch) => {
+      if (!baseBranch || branch.name === baseBranch) return { ...branch, ahead: 0, behind: 0 };
+      const { stdout: counts } = await execFileAsync("git", ["rev-list", "--left-right", "--count", `${baseBranch}...${branch.name}`], {
+        cwd: rootPath,
+      });
+      const [behind = 0, ahead = 0] = counts.trim().split(/\s+/).map((value) => Number.parseInt(value, 10) || 0);
+      return { ...branch, ahead, behind };
+    }));
+    return { baseBranch, branches };
+  }
+
+  async gitSwitchBranch(rootPath: string, branch: string): Promise<void> {
+    const branches = await this.localGitBranchNames(rootPath);
+    if (!branches.includes(branch)) throw new Error("Branch not found");
+    await execFileAsync("git", ["switch", branch], { cwd: rootPath });
+  }
+
+  async gitSetFileStaged(rootPath: string, path: string, staged: boolean): Promise<void> {
+    const resolved = resolveWorkspacePath(rootPath, path);
+    if (staged) {
+      await execFileAsync("git", ["add", "--", resolved.relativePath], { cwd: rootPath });
+      return;
+    }
+    try {
+      await execFileAsync("git", ["restore", "--staged", "--", resolved.relativePath], { cwd: rootPath });
+    } catch {
+      await execFileAsync("git", ["reset", "HEAD", "--", resolved.relativePath], { cwd: rootPath });
+    }
+  }
+
+  async gitCommitFiles(rootPath: string, commitId: string): Promise<GitCommitFilesResponse> {
+    const resolvedCommit = await this.resolveGitCommit(rootPath, commitId);
+    const { stdout: parentOutput } = await execFileAsync("git", ["rev-list", "--parents", "-n", "1", resolvedCommit], { cwd: rootPath });
+    const parent = parentOutput.trim().split(/\s+/)[1] ?? null;
+    const command = parent
+      ? ["diff", "--no-color", "-M", parent, resolvedCommit]
+      : ["diff-tree", "--root", "--no-commit-id", "-r", "-M", "--no-color", resolvedCommit];
+    const [{ stdout: statusOutput }, { stdout: statsOutput }] = await Promise.all([
+      execFileAsync("git", [...command, "--name-status"], { cwd: rootPath, maxBuffer: 10_000_000 }),
+      execFileAsync("git", [...command, "--numstat"], { cwd: rootPath, maxBuffer: 10_000_000 }),
+    ]);
+    const stats = new Map<string, { additions: number; deletions: number }>();
+    for (const line of statsOutput.split("\n").filter(Boolean)) {
+      const [added = "0", deleted = "0", ...pathParts] = line.split("\t");
+      const path = pathParts.at(-1) ?? "";
+      stats.set(path, {
+        additions: added === "-" ? 0 : Number.parseInt(added, 10) || 0,
+        deletions: deleted === "-" ? 0 : Number.parseInt(deleted, 10) || 0,
+      });
+    }
+    const files = statusOutput.split("\n").filter(Boolean).map((line) => {
+      const [status = "", ...pathParts] = line.split("\t");
+      const path = pathParts.at(-1) ?? "";
+      const counts = stats.get(path) ?? { additions: 0, deletions: 0 };
+      return { path, status, staged: false, diffAvailable: true, ...counts };
+    });
+    return { commitId: resolvedCommit, files };
+  }
+
   async gitDiff(rootPath: string, path: string): Promise<string> {
     const resolved = resolveWorkspacePath(rootPath, path);
     const { stdout } = await execFileAsync("git", ["diff", "--", resolved.relativePath], {
@@ -421,6 +521,77 @@ export class LocalAgent implements AgentGateway {
         patch,
         message: fallback.message,
       };
+    }
+  }
+
+  async gitCommitFileDiff(rootPath: string, commitId: string, path: string): Promise<GitFileDiffResponse> {
+    const resolved = resolveWorkspacePath(rootPath, path);
+    const resolvedCommit = await this.resolveGitCommit(rootPath, commitId);
+    const { stdout: parentOutput } = await execFileAsync("git", ["rev-list", "--parents", "-n", "1", resolvedCommit], { cwd: rootPath });
+    const parent = parentOutput.trim().split(/\s+/)[1] ?? null;
+    let patch = "";
+    try {
+      const patchArgs = parent
+        ? ["diff", "--no-color", parent, resolvedCommit, "--", resolved.relativePath]
+        : ["show", "--no-color", "--format=", resolvedCommit, "--", resolved.relativePath];
+      patch = (await execFileAsync("git", patchArgs, { cwd: rootPath, maxBuffer: 5_000_000 })).stdout;
+      const original = parent && await this.gitPathExists(rootPath, parent, resolved.relativePath)
+        ? await this.readGitObjectDiffText(rootPath, `${parent}:${resolved.relativePath}`)
+        : "";
+      const current = await this.gitPathExists(rootPath, resolvedCommit, resolved.relativePath)
+        ? await this.readGitObjectDiffText(rootPath, `${resolvedCommit}:${resolved.relativePath}`)
+        : "";
+      return { path: resolved.relativePath, kind: "text", original, current, patch, message: null };
+    } catch (error) {
+      const fallback = this.gitFileDiffFallbackKind(error);
+      return { path: resolved.relativePath, kind: fallback.kind, original: "", current: "", patch, message: fallback.message };
+    }
+  }
+
+  private async currentGitBranch(rootPath: string): Promise<string> {
+    return (await execFileAsync("git", ["branch", "--show-current"], { cwd: rootPath })).stdout.trim();
+  }
+
+  private async localGitBranchNames(rootPath: string): Promise<string[]> {
+    const { stdout } = await execFileAsync("git", ["for-each-ref", "--format=%(refname:short)", "refs/heads"], { cwd: rootPath });
+    return stdout.split("\n").filter(Boolean);
+  }
+
+  private parseGitHistoryRecord(record: string): GitCommit | null {
+    const [id, shortId, title, message, authorName, authorEmail, authoredAt, committedAt, stats = ""] = record.split("\x00");
+    if (!id || !shortId) return null;
+    let additions = 0;
+    let deletions = 0;
+    for (const line of stats.split("\n")) {
+      const [added, deleted] = line.trim().split("\t");
+      if (added && added !== "-") additions += Number.parseInt(added, 10) || 0;
+      if (deleted && deleted !== "-") deletions += Number.parseInt(deleted, 10) || 0;
+    }
+    return {
+      id,
+      shortId,
+      title: title ?? "",
+      message: (message ?? "").trim(),
+      authorName: authorName ?? "",
+      authorEmail: authorEmail ?? "",
+      authoredAt: authoredAt ?? "",
+      committedAt: committedAt ?? "",
+      additions,
+      deletions,
+    };
+  }
+
+  private async resolveGitCommit(rootPath: string, commitId: string): Promise<string> {
+    if (!gitCommitPattern.test(commitId)) throw new Error("Invalid commit id");
+    return (await execFileAsync("git", ["rev-parse", "--verify", `${commitId}^{commit}`], { cwd: rootPath })).stdout.trim();
+  }
+
+  private async gitPathExists(rootPath: string, commitId: string, path: string): Promise<boolean> {
+    try {
+      await execFileAsync("git", ["cat-file", "-e", `${commitId}:${path}`], { cwd: rootPath });
+      return true;
+    } catch {
+      return false;
     }
   }
 

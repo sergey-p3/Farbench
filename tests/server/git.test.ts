@@ -221,6 +221,75 @@ describe("LocalAgent git integration", () => {
     expect(diff.patch).toContain("+second");
   });
 
+  it("returns commit history with line counts and commit details", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    git(["init", "-b", "main"], dir);
+    git(["config", "user.email", "dev@example.com"], dir);
+    git(["config", "user.name", "Dev"], dir);
+    writeFileSync(join(dir, "app.txt"), "one\n");
+    git(["add", "app.txt"], dir);
+    git(["commit", "-m", "initial title", "-m", "more detail"], dir);
+
+    const history = await new LocalAgent().gitHistory(dir);
+
+    expect(history.branch).toBe("main");
+    expect(history.commits[0]).toMatchObject({
+      title: "initial title",
+      message: "initial title\n\nmore detail",
+      authorName: "Dev",
+      authorEmail: "dev@example.com",
+      additions: 1,
+      deletions: 0,
+    });
+    expect(history.commits[0]?.id).toMatch(/^[0-9a-f]{40}$/);
+  });
+
+  it("lists branch divergence, switches branches, and stages files", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    git(["init", "-b", "main"], dir);
+    git(["config", "user.email", "dev@example.com"], dir);
+    git(["config", "user.name", "Dev"], dir);
+    writeFileSync(join(dir, "app.txt"), "one\n");
+    git(["add", "app.txt"], dir);
+    git(["commit", "-m", "initial"], dir);
+    git(["switch", "-c", "feature"], dir);
+    writeFileSync(join(dir, "app.txt"), "two\n");
+    git(["commit", "-am", "feature work"], dir);
+    git(["switch", "main"], dir);
+
+    const agent = new LocalAgent();
+    const branches = await agent.gitBranches(dir);
+    expect(branches.baseBranch).toBe("main");
+    expect(branches.branches.find((branch) => branch.name === "feature")).toMatchObject({ ahead: 1, behind: 0 });
+
+    await agent.gitSwitchBranch(dir, "feature");
+    writeFileSync(join(dir, "app.txt"), "three\n");
+    await agent.gitSetFileStaged(dir, "app.txt", true);
+    expect((await agent.gitStatus(dir)).changes.find((change) => change.path === "app.txt")?.staged).toBe(true);
+    await agent.gitSetFileStaged(dir, "app.txt", false);
+    expect((await agent.gitStatus(dir)).changes.find((change) => change.path === "app.txt")?.staged).toBe(false);
+  });
+
+  it("returns changed files and file content for a selected commit", async () => {
+    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    git(["init", "-b", "main"], dir);
+    git(["config", "user.email", "dev@example.com"], dir);
+    git(["config", "user.name", "Dev"], dir);
+    writeFileSync(join(dir, "app.txt"), "one\n");
+    git(["add", "app.txt"], dir);
+    git(["commit", "-m", "initial"], dir);
+    writeFileSync(join(dir, "app.txt"), "two\nthree\n");
+    git(["commit", "-am", "update"], dir);
+    const commitId = execFileSync("git", ["rev-parse", "HEAD"], { cwd: dir, encoding: "utf8" }).trim();
+
+    const agent = new LocalAgent();
+    const files = await agent.gitCommitFiles(dir, commitId);
+    const diff = await agent.gitCommitFileDiff(dir, commitId, "app.txt");
+
+    expect(files.files).toContainEqual(expect.objectContaining({ path: "app.txt", status: "M", additions: 2, deletions: 1 }));
+    expect(diff).toMatchObject({ path: "app.txt", kind: "text", original: "one\n", current: "two\nthree\n" });
+  });
+
   it("returns a stable bad request when git diff path is missing", async () => {
     dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
     const db = createDatabase(join(dir, "state.db"));

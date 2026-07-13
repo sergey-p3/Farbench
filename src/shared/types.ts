@@ -86,6 +86,48 @@ export interface GitStatusResponse {
   changes: GitChange[];
 }
 
+export interface GitCommit {
+  id: string;
+  shortId: string;
+  title: string;
+  message: string;
+  authorName: string;
+  authorEmail: string;
+  authoredAt: string;
+  committedAt: string;
+  additions: number;
+  deletions: number;
+}
+
+export interface GitHistoryResponse {
+  branch: string;
+  commits: GitCommit[];
+}
+
+export interface GitBranch {
+  name: string;
+  current: boolean;
+  ahead: number;
+  behind: number;
+  lastCommitAt: string;
+  lastCommitId: string;
+}
+
+export interface GitBranchesResponse {
+  baseBranch: string;
+  branches: GitBranch[];
+}
+
+export interface GitCommitFile extends GitChange {
+  additions: number;
+  deletions: number;
+}
+
+export interface GitCommitFilesResponse {
+  commitId: string;
+  files: GitCommitFile[];
+}
+
 export type GitFileDiffKind = "text" | "binary" | "too-large" | "unavailable";
 
 export interface GitFileDiffResponse {
