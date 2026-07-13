@@ -1,7 +1,10 @@
 import type {
   FileReadResponse,
   FileResource,
+  GitBranchesResponse,
+  GitCommitFilesResponse,
   GitFileDiffResponse,
+  GitHistoryResponse,
   GitStatusResponse,
   PortPreview,
   Session,
@@ -135,12 +138,44 @@ export const api = {
     return request<GitStatusResponse>(`/api/workspaces/${encodeURIComponent(workspaceId)}/git/status`);
   },
 
+  async gitHistory(workspaceId: string, branch?: string): Promise<GitHistoryResponse> {
+    return request<GitHistoryResponse>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/git/history${query({ branch })}`,
+    );
+  },
+
+  async gitBranches(workspaceId: string): Promise<GitBranchesResponse> {
+    return request<GitBranchesResponse>(`/api/workspaces/${encodeURIComponent(workspaceId)}/git/branches`);
+  },
+
+  async gitSwitchBranch(workspaceId: string, branch: string): Promise<void> {
+    await request<{ ok: true }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/git/branches/switch`, {
+      method: "POST",
+      ...jsonBody({ branch }),
+    });
+  },
+
+  async gitSetFileStaged(workspaceId: string, path: string, staged: boolean): Promise<void> {
+    await request<{ ok: true }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/git/stage`, {
+      method: "POST",
+      ...jsonBody({ path, staged }),
+    });
+  },
+
+  async gitCommitFiles(workspaceId: string, commit: string): Promise<GitCommitFilesResponse> {
+    return request<GitCommitFilesResponse>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/git/commit-files${query({ commit })}`,
+    );
+  },
+
   async gitDiff(workspaceId: string, path: string): Promise<string> {
     return request<string>(`/api/workspaces/${encodeURIComponent(workspaceId)}/git/diff${query({ path })}`);
   },
 
-  async gitFileDiff(workspaceId: string, path: string): Promise<GitFileDiffResponse> {
-    return request<GitFileDiffResponse>(`/api/workspaces/${encodeURIComponent(workspaceId)}/git/file-diff${query({ path })}`);
+  async gitFileDiff(workspaceId: string, path: string, commit?: string): Promise<GitFileDiffResponse> {
+    return request<GitFileDiffResponse>(
+      `/api/workspaces/${encodeURIComponent(workspaceId)}/git/file-diff${query({ path, commit })}`,
+    );
   },
 
   async createPreview(workspaceId: string, port: number): Promise<PortPreview> {

@@ -137,8 +137,32 @@ class FakeAgent implements AgentGateway {
     return { changes: [] };
   }
 
+  async gitHistory() {
+    return { branch: "main", commits: [] };
+  }
+
+  async gitBranches() {
+    return { baseBranch: "main", branches: [] };
+  }
+
+  async gitSwitchBranch(): Promise<void> {}
+
+  async gitSetFileStaged(): Promise<void> {}
+
+  async gitCommitFiles() {
+    return { commitId: "0000000", files: [] };
+  }
+
   async gitDiff(): Promise<string> {
     return "";
+  }
+
+  async gitFileDiff(): Promise<never> {
+    throw new Error("not used");
+  }
+
+  async gitCommitFileDiff(): Promise<never> {
+    throw new Error("not used");
   }
 
   async createTerminalSession() {
