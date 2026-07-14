@@ -4,6 +4,12 @@ import { Terminal } from "xterm";
 import { api, isUnauthorized } from "../api.js";
 import { copyTextToClipboard } from "../clipboard.js";
 import { createMomentumScrollGesture, TOUCH_SCROLL_TAP_THRESHOLD_PX } from "../scrollMomentum.js";
+import {
+  shouldResetTerminalArrowAcceleration,
+  terminalArrowRepeatDelay,
+  terminalArrowVector,
+  type TerminalArrowDirection,
+} from "../terminalArrowGesture.js";
 import { createTerminalGestureOwner } from "../terminalGestureOwner.js";
 import { scrollTerminalViewportByPixels } from "../terminalPixelScroller.js";
 import { terminalControlSequence, terminalKeyLabels, type TerminalToolbarKey } from "../terminalKeys.js";
@@ -41,11 +47,29 @@ interface TerminalActionMenuState {
   y: number;
 }
 
+interface TerminalArrowGestureRuntime {
+  accelerationStartedAt: number;
+  direction: TerminalArrowDirection | null;
+  distance: number;
+  originX: number;
+  originY: number;
+  peakDistance: number;
+  pointerId: number;
+  viewportScrollTop: number;
+}
+
+interface TerminalArrowOverlayState {
+  direction: TerminalArrowDirection | null;
+  originX: number;
+  originY: number;
+}
+
 type TerminalSelectionHandleKind = "start" | "end";
 type ConnectionPhase = "connecting" | "attaching" | "loading-history" | null;
 
-const LONG_PRESS_MS = 550;
+const LONG_PRESS_MS = 1_000;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
+const ARROW_INPUT_VIBRATION_MS = 12;
 const TERMINAL_ACTION_MENU_WIDTH_PX = 168;
 const TERMINAL_CONNECT_TIMEOUT_MS = 4_000;
 const TERMINAL_AUTO_RETRY_DELAYS_MS = [300, 1_000, 2_500];
@@ -73,7 +97,15 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
   const autoReconnectSessionIdRef = useRef<string | null>(null);
   const skipNextToolbarClickRef = useRef(false);
   const longPressTimerRef = useRef<number | null>(null);
-  const longPressStartRef = useRef<{ pointerId: number; x: number; y: number } | null>(null);
+  const longPressStartRef = useRef<{
+    keyboardWasActive: boolean;
+    pointerId: number;
+    x: number;
+    y: number;
+  } | null>(null);
+  const arrowGestureRef = useRef<TerminalArrowGestureRuntime | null>(null);
+  const arrowRepeatTimerRef = useRef<number | null>(null);
+  const cancelScrollForArrowGestureRef = useRef<(() => void) | null>(null);
   const explicitTapStartRef = useRef<{ pointerId: number; pointerType: string; x: number; y: number } | null>(null);
   const selectionDragRef = useRef<{ anchor: TerminalBufferCell; handle: TerminalSelectionHandleKind; pointerId: number } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
@@ -83,6 +115,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
   const [actionMenu, setActionMenu] = useState<TerminalActionMenuState | null>(null);
   const [isPasteCaptureVisible, setIsPasteCaptureVisible] = useState(false);
   const [selectionHandles, setSelectionHandles] = useState<TerminalSelectionHandleLayout | null>(null);
+  const [arrowOverlay, setArrowOverlay] = useState<TerminalArrowOverlayState | null>(null);
 
   const focusTerminal = useCallback(() => {
     window.setTimeout(() => terminalRef.current?.focus(), 0);
@@ -173,6 +206,140 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     longPressStartRef.current = null;
   }, []);
 
+  const clearArrowRepeat = useCallback(() => {
+    if (arrowRepeatTimerRef.current === null) return;
+    window.clearTimeout(arrowRepeatTimerRef.current);
+    arrowRepeatTimerRef.current = null;
+  }, []);
+
+  const sendArrowDirection = useCallback((direction: TerminalArrowDirection) => {
+    const sequence = terminalControlSequence(direction, false);
+    if (!sequence) return;
+    sendTerminalInput(sequence.data);
+    try {
+      navigator.vibrate?.(ARROW_INPUT_VIBRATION_MS);
+    } catch {
+      // Haptics are optional and may be blocked by the browser or device settings.
+    }
+  }, [sendTerminalInput]);
+
+  const scheduleArrowRepeat = useCallback(function scheduleArrowRepeatTick() {
+    clearArrowRepeat();
+    const gesture = arrowGestureRef.current;
+    if (!gesture?.direction) return;
+
+    const delay = terminalArrowRepeatDelay(
+      gesture.distance,
+      performance.now() - gesture.accelerationStartedAt,
+      gesture.direction,
+    );
+    arrowRepeatTimerRef.current = window.setTimeout(() => {
+      arrowRepeatTimerRef.current = null;
+      const current = arrowGestureRef.current;
+      if (!current?.direction) return;
+      sendArrowDirection(current.direction);
+      scheduleArrowRepeatTick();
+    }, delay);
+  }, [clearArrowRepeat, sendArrowDirection]);
+
+  const restoreArrowGestureScrollPosition = useCallback(() => {
+    const gesture = arrowGestureRef.current;
+    const viewport = containerRef.current?.querySelector(".xterm-viewport");
+    if (!gesture || !(viewport instanceof HTMLElement)) return;
+    if (viewport.scrollTop !== gesture.viewportScrollTop) {
+      viewport.scrollTop = gesture.viewportScrollTop;
+    }
+  }, []);
+
+  const updateArrowGesture = useCallback((pointerId: number | null, clientX: number, clientY: number): boolean => {
+    const arrowGesture = arrowGestureRef.current;
+    if (!arrowGesture || (pointerId !== null && arrowGesture.pointerId !== pointerId)) return false;
+
+    const next = terminalArrowVector(
+      arrowGesture.originX,
+      arrowGesture.originY,
+      clientX,
+      clientY,
+    );
+    const directionChanged = next.direction !== arrowGesture.direction;
+    const accelerationReset = shouldResetTerminalArrowAcceleration(arrowGesture.peakDistance, next.distance);
+    if (accelerationReset) {
+      arrowGesture.accelerationStartedAt = performance.now();
+      arrowGesture.peakDistance = next.distance;
+    } else {
+      arrowGesture.peakDistance = Math.max(arrowGesture.peakDistance, next.distance);
+    }
+    arrowGesture.direction = next.direction;
+    arrowGesture.distance = next.distance;
+    setArrowOverlay({
+      direction: next.direction,
+      originX: arrowGesture.originX,
+      originY: arrowGesture.originY,
+    });
+
+    if (!next.direction) {
+      clearArrowRepeat();
+    } else if (directionChanged) {
+      sendArrowDirection(next.direction);
+      scheduleArrowRepeat();
+    } else if (accelerationReset) {
+      scheduleArrowRepeat();
+    }
+    restoreArrowGestureScrollPosition();
+    return true;
+  }, [clearArrowRepeat, restoreArrowGestureScrollPosition, scheduleArrowRepeat, sendArrowDirection]);
+
+  const clearArrowGesture = useCallback(() => {
+    clearArrowRepeat();
+    const gesture = arrowGestureRef.current;
+    arrowGestureRef.current = null;
+    setArrowOverlay(null);
+
+    const stage = stageRef.current;
+    if (!gesture || !stage) return;
+    try {
+      if (stage.hasPointerCapture(gesture.pointerId)) stage.releasePointerCapture(gesture.pointerId);
+    } catch {
+      // Synthetic pointer events and older touch browsers may not support capture.
+    }
+  }, [clearArrowRepeat]);
+
+  const activateArrowGesture = useCallback((start: NonNullable<typeof longPressStartRef.current>) => {
+    if (longPressStartRef.current?.pointerId !== start.pointerId) return;
+    if (longPressTimerRef.current !== null) {
+      window.clearTimeout(longPressTimerRef.current);
+      longPressTimerRef.current = null;
+    }
+    longPressStartRef.current = null;
+    explicitTapStartRef.current = null;
+    setActionMenu(null);
+    terminalRef.current?.clearSelection();
+    setSelectionHandles(null);
+    cancelScrollForArrowGestureRef.current?.();
+
+    if (!start.keyboardWasActive && terminalRef.current?.textarea === document.activeElement) {
+      terminalRef.current.textarea?.blur();
+    }
+
+    const viewport = containerRef.current?.querySelector(".xterm-viewport");
+    arrowGestureRef.current = {
+      accelerationStartedAt: performance.now(),
+      direction: null,
+      distance: 0,
+      originX: start.x,
+      originY: start.y,
+      peakDistance: 0,
+      pointerId: start.pointerId,
+      viewportScrollTop: viewport instanceof HTMLElement ? viewport.scrollTop : 0,
+    };
+    setArrowOverlay({ direction: null, originX: start.x, originY: start.y });
+    try {
+      stageRef.current?.setPointerCapture(start.pointerId);
+    } catch {
+      // Pointer capture is an enhancement; the gesture still works within the stage.
+    }
+  }, []);
+
   const terminalBufferCellFromPointer = useCallback((clientX: number, clientY: number): TerminalBufferCell | null => {
     const terminal = terminalRef.current;
     const host = containerRef.current;
@@ -252,6 +419,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
 
   const handleTerminalContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();
+    if (longPressStartRef.current || arrowGestureRef.current) return;
     openTerminalActionMenu(event.clientX, event.clientY);
   }, [openTerminalActionMenu]);
 
@@ -260,22 +428,31 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     explicitTapStartRef.current = { pointerId: event.pointerId, pointerType: event.pointerType, x: event.clientX, y: event.clientY };
     if (event.button !== 0 || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
 
-    const start = { pointerId: event.pointerId, x: event.clientX, y: event.clientY };
+    const start = {
+      keyboardWasActive: terminalRef.current?.textarea === document.activeElement,
+      pointerId: event.pointerId,
+      x: event.clientX,
+      y: event.clientY,
+    };
     longPressStartRef.current = start;
     longPressTimerRef.current = window.setTimeout(() => {
-      if (longPressStartRef.current?.pointerId === start.pointerId) {
-        explicitTapStartRef.current = null;
-        openTerminalActionMenu(start.x, start.y);
-      }
+      activateArrowGesture(start);
     }, LONG_PRESS_MS);
-  }, [openTerminalActionMenu]);
+  }, [activateArrowGesture]);
 
   const handleTerminalPointerMove = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (updateArrowGesture(event.pointerId, event.clientX, event.clientY)) {
+      event.preventDefault();
+      event.stopPropagation();
+      return;
+    }
+
     const start = longPressStartRef.current;
-    if (!start || start.pointerId !== event.pointerId) return;
-    const distance = Math.hypot(event.clientX - start.x, event.clientY - start.y);
-    if (distance > LONG_PRESS_MOVE_TOLERANCE_PX) {
-      clearLongPress();
+    if (start?.pointerId === event.pointerId) {
+      const distance = Math.hypot(event.clientX - start.x, event.clientY - start.y);
+      if (distance > LONG_PRESS_MOVE_TOLERANCE_PX) {
+        clearLongPress();
+      }
     }
     const tapStart = explicitTapStartRef.current;
     if (!tapStart || tapStart.pointerId !== event.pointerId) return;
@@ -283,14 +460,40 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     if (tapDistance > LONG_PRESS_MOVE_TOLERANCE_PX) {
       explicitTapStartRef.current = null;
     }
-  }, [clearLongPress]);
+  }, [clearLongPress, updateArrowGesture]);
 
   const cancelTerminalPointerGesture = useCallback(() => {
     explicitTapStartRef.current = null;
     clearLongPress();
-  }, [clearLongPress]);
+    clearArrowGesture();
+  }, [clearArrowGesture, clearLongPress]);
+
+  const handleTerminalPointerLeave = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    // Pointer capture and dragging beyond the terminal can produce leave events.
+    // Once arrow control owns this pointer, only release/cancel should end it.
+    if (arrowGestureRef.current?.pointerId === event.pointerId) return;
+    cancelTerminalPointerGesture();
+  }, [cancelTerminalPointerGesture]);
+
+  const handleTerminalPointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (event.pointerType === "touch" && arrowGestureRef.current?.pointerId === event.pointerId) {
+      event.preventDefault();
+      explicitTapStartRef.current = null;
+      clearLongPress();
+      return;
+    }
+    cancelTerminalPointerGesture();
+  }, [cancelTerminalPointerGesture, clearLongPress]);
 
   const handleTerminalPointerEnd = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
+    if (arrowGestureRef.current?.pointerId === event.pointerId) {
+      event.preventDefault();
+      event.stopPropagation();
+      explicitTapStartRef.current = null;
+      clearLongPress();
+      clearArrowGesture();
+      return;
+    }
     const tapStart = explicitTapStartRef.current;
     if (tapStart?.pointerId === event.pointerId) {
       if (tapStart.pointerType === "touch" || tapStart.pointerType === "pen") {
@@ -303,7 +506,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     }
     explicitTapStartRef.current = null;
     clearLongPress();
-  }, [clearLongPress, focusTerminalAtPointer]);
+  }, [clearArrowGesture, clearLongPress, focusTerminalAtPointer]);
 
   const copyTerminalSelection = useCallback(async () => {
     const terminal = terminalRef.current;
@@ -627,6 +830,32 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
         return viewport instanceof HTMLElement ? viewport.clientHeight : touchScrollTarget.clientHeight;
       },
     });
+    const cancelScrollForArrowGesture = () => {
+      touchMomentum.cancel();
+      pointerMomentum.cancel();
+    };
+    cancelScrollForArrowGestureRef.current = cancelScrollForArrowGesture;
+    const arrowGestureTarget = stageRef.current;
+    const captureArrowPointerMove = (event: PointerEvent) => {
+      if (!updateArrowGesture(event.pointerId, event.clientX, event.clientY)) return;
+      explicitTapStartRef.current = null;
+      cancelScrollForArrowGesture();
+      if (event.cancelable) event.preventDefault();
+      event.stopPropagation();
+      restoreArrowGestureScrollPosition();
+    };
+    const captureArrowTouchMove = (event: TouchEvent) => {
+      if (!arrowGestureRef.current) return;
+      explicitTapStartRef.current = null;
+      cancelScrollForArrowGesture();
+      const touch = event.touches.item(0);
+      if (touch) updateArrowGesture(null, touch.clientX, touch.clientY);
+      if (event.cancelable) event.preventDefault();
+      event.stopPropagation();
+      restoreArrowGestureScrollPosition();
+    };
+    arrowGestureTarget?.addEventListener("pointermove", captureArrowPointerMove, { capture: true, passive: false });
+    arrowGestureTarget?.addEventListener("touchmove", captureArrowTouchMove, { capture: true, passive: false });
     let touchScrollStartY: number | null = null;
     const beginTouchScroll = (event: TouchEvent) => {
       const touchY = touchScrollY(event.touches);
@@ -640,6 +869,14 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       touchMomentum.begin(touchY);
     };
     const moveTouchScroll = (event: TouchEvent) => {
+      if (arrowGestureRef.current) {
+        explicitTapStartRef.current = null;
+        cancelScrollForArrowGesture();
+        const touch = event.touches.item(0);
+        if (touch) updateArrowGesture(null, touch.clientX, touch.clientY);
+        if (event.cancelable) event.preventDefault();
+        return;
+      }
       const nextY = touchScrollY(event.touches);
       if (nextY === null) return;
       if (!gestureOwner.canMoveTouch()) {
@@ -655,11 +892,15 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       }
     };
     const resetTouchScroll = () => {
+      const hadArrowGesture = arrowGestureRef.current !== null;
+      if (hadArrowGesture) clearArrowGesture();
       touchScrollStartY = null;
-      touchMomentum.end();
+      if (hadArrowGesture) touchMomentum.cancel();
+      else touchMomentum.end();
       gestureOwner.endTouch();
     };
     const cancelTouchScroll = () => {
+      if (arrowGestureRef.current) clearArrowGesture();
       touchScrollStartY = null;
       touchMomentum.cancel();
       gestureOwner.endTouch();
@@ -671,6 +912,12 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       pointerMomentum.begin(event.clientY);
     };
     const movePointerScroll = (event: PointerEvent) => {
+      if (arrowGestureRef.current?.pointerId === event.pointerId) {
+        explicitTapStartRef.current = null;
+        pointerMomentum.cancel();
+        if (event.cancelable) event.preventDefault();
+        return;
+      }
       if (!gestureOwner.canMovePointer(event.pointerId)) return;
       if (!pointerMomentum.move(event.clientY)) return;
       gestureOwner.notePointerMoved(event.pointerId);
@@ -697,8 +944,15 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     touchScrollTarget.addEventListener("pointerup", resetPointerScroll, true);
     touchScrollTarget.addEventListener("pointercancel", cancelPointerScroll, true);
     const xtermViewport = touchScrollTarget.querySelector(".xterm-viewport");
+    const handleXtermViewportScroll = () => {
+      if (arrowGestureRef.current) {
+        restoreArrowGestureScrollPosition();
+        return;
+      }
+      updateTerminalSelectionHandles();
+    };
     if (xtermViewport instanceof HTMLElement) {
-      xtermViewport.addEventListener("scroll", updateTerminalSelectionHandles);
+      xtermViewport.addEventListener("scroll", handleXtermViewportScroll);
     }
 
     const dataDisposable = terminal.onData((data) => {
@@ -892,6 +1146,11 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       touchMomentum.cancel();
       pointerMomentum.cancel();
       gestureOwner.cancel();
+      if (cancelScrollForArrowGestureRef.current === cancelScrollForArrowGesture) {
+        cancelScrollForArrowGestureRef.current = null;
+      }
+      arrowGestureTarget?.removeEventListener("pointermove", captureArrowPointerMove, true);
+      arrowGestureTarget?.removeEventListener("touchmove", captureArrowTouchMove, true);
       touchScrollTarget.removeEventListener("touchstart", beginTouchScroll, true);
       touchScrollTarget.removeEventListener("touchmove", moveTouchScroll, true);
       touchScrollTarget.removeEventListener("touchend", resetTouchScroll, true);
@@ -901,12 +1160,13 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       touchScrollTarget.removeEventListener("pointerup", resetPointerScroll, true);
       touchScrollTarget.removeEventListener("pointercancel", cancelPointerScroll, true);
       if (xtermViewport instanceof HTMLElement) {
-        xtermViewport.removeEventListener("scroll", updateTerminalSelectionHandles);
+        xtermViewport.removeEventListener("scroll", handleXtermViewportScroll);
       }
       dataDisposable.dispose();
       selectionDisposable.dispose();
       scrollDisposable.dispose();
       clearLongPress();
+      clearArrowGesture();
       setSelectionHandles(null);
       if (socketRef.current === socket) socketRef.current = null;
       if (terminalRef.current === terminal) terminalRef.current = null;
@@ -920,7 +1180,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       debug("effect.cleanup.complete", { readyState: webSocketReadyStateName(socket.readyState) });
       if (terminalDebugRef.current === debug) terminalDebugRef.current = null;
     };
-  }, [clearLongPress, focusTerminal, onUnauthorized, retryNonce, sendTerminalInput, sessionId, updateCtrlActive, updateTerminalSelectionHandles]);
+  }, [clearArrowGesture, clearLongPress, focusTerminal, onUnauthorized, restoreArrowGestureScrollPosition, retryNonce, sendTerminalInput, sessionId, updateArrowGesture, updateCtrlActive, updateTerminalSelectionHandles]);
 
   if (!sessionId) {
     return (
@@ -948,9 +1208,9 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
         className="terminal-stage"
         ref={stageRef}
         onContextMenu={handleTerminalContextMenu}
-        onPointerCancel={cancelTerminalPointerGesture}
+        onPointerCancel={handleTerminalPointerCancel}
         onPointerDown={handleTerminalPointerDown}
-        onPointerLeave={cancelTerminalPointerGesture}
+        onPointerLeave={handleTerminalPointerLeave}
         onPointerMove={handleTerminalPointerMove}
         onPointerUp={handleTerminalPointerEnd}
       >
@@ -989,6 +1249,26 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
               title="Expand selection end"
               type="button"
             />
+          </div>
+        ) : null}
+        {arrowOverlay ? (
+          <div
+            aria-label="Arrow key gesture control"
+            className="terminal-arrow-gesture"
+            data-direction={arrowOverlay.direction ?? "inactive"}
+            role="status"
+            style={{ left: arrowOverlay.originX, top: arrowOverlay.originY }}
+          >
+            <span aria-hidden="true" className="terminal-arrow-origin" />
+            {(["left", "up", "down", "right"] as const).map((direction) => (
+              <span
+                aria-hidden="true"
+                className={`terminal-arrow terminal-arrow-${direction}${arrowOverlay.direction === direction ? " active" : ""}`}
+                key={direction}
+              >
+                {direction === "left" ? "←" : direction === "up" ? "↑" : direction === "down" ? "↓" : "→"}
+              </span>
+            ))}
           </div>
         ) : null}
       </div>

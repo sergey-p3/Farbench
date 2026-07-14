@@ -385,6 +385,7 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
 
   await page.addInitScript(() => {
     const sentMessages: string[] = [];
+    const vibrationCalls: number[] = [];
 
     class FakeTerminalSocket extends EventTarget {
       static readonly CONNECTING = 0;
@@ -440,6 +441,14 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
 
     Reflect.set(window, "WebSocket", FakeTerminalSocket);
     Reflect.set(window, "__terminalSentMessages", sentMessages);
+    Reflect.set(window, "__terminalVibrationCalls", vibrationCalls);
+    Object.defineProperty(navigator, "vibrate", {
+      configurable: true,
+      value: (duration: number) => {
+        vibrationCalls.push(duration);
+        return true;
+      },
+    });
   });
 
   await page.route("**/api/workspaces/*/sessions**", async (route) => {
@@ -898,6 +907,13 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   const longPressTarget = await terminalSurface.boundingBox();
   expect(longPressTarget).not.toBeNull();
   if (!longPressTarget) throw new Error("Terminal surface not found for long press");
+  const arrowInputStartIndex = await page.evaluate(() => {
+    const messages = Reflect.get(window, "__terminalSentMessages") as string[];
+    return messages
+      .map((message) => JSON.parse(message) as { type: string })
+      .filter((message) => message.type === "input")
+      .length;
+  });
   await terminalSurface.dispatchEvent("pointerdown", {
     bubbles: true,
     button: 0,
@@ -908,8 +924,27 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     pointerType: "touch",
   });
   await page.waitForTimeout(650);
-  await expect(page.getByRole("menu", { name: "Terminal actions" })).toBeVisible();
-  await terminalSurface.dispatchEvent("pointerup", {
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toHaveCount(0);
+  await expect(page.getByRole("status", { name: "Arrow key gesture control" })).toHaveCount(0);
+  await page.waitForTimeout(500);
+  const arrowGesture = page.getByRole("status", { name: "Arrow key gesture control" });
+  await expect(arrowGesture).toBeVisible();
+  await expect(arrowGesture).toHaveAttribute("data-direction", "inactive");
+  await expect(startHandle).toHaveCount(0);
+  await expect(endHandle).toHaveCount(0);
+  expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).not.toBe("Terminal input");
+  await terminalSurface.dispatchEvent("pointerout", {
+    bubbles: true,
+    button: 0,
+    cancelable: true,
+    clientX: longPressTarget.x + 24,
+    clientY: longPressTarget.y + 68,
+    pointerId: 71,
+    pointerType: "touch",
+    relatedTarget: null,
+  });
+  await expect(arrowGesture).toHaveAttribute("data-direction", "inactive");
+  await terminalSurface.dispatchEvent("pointercancel", {
     bubbles: true,
     button: 0,
     cancelable: true,
@@ -918,28 +953,67 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     pointerId: 71,
     pointerType: "touch",
   });
+  await expect(arrowGesture).toHaveAttribute("data-direction", "inactive");
+  const touchFallbackMove = await page.evaluate(({ clientX, clientY }) => {
+    const host = document.querySelector(".terminal-host");
+    const viewport = document.querySelector(".terminal-host .xterm-viewport");
+    if (!(host instanceof HTMLElement) || !(viewport instanceof HTMLElement)) {
+      throw new Error("Terminal scroll elements not found");
+    }
+    const before = viewport.scrollTop;
+    const maximumScrollTop = Math.max(0, viewport.scrollHeight - viewport.clientHeight);
+    viewport.scrollTop = before > 0 ? 0 : Math.min(40, maximumScrollTop);
+    viewport.dispatchEvent(new Event("scroll"));
+    const afterForcedScroll = viewport.scrollTop;
+    const touch = new Touch({ identifier: 71, target: host, clientX, clientY });
+    const move = new TouchEvent("touchmove", {
+      bubbles: true,
+      cancelable: true,
+      touches: [touch],
+    });
+    host.dispatchEvent(move);
+    return { after: viewport.scrollTop, afterForcedScroll, before, defaultPrevented: move.defaultPrevented };
+  }, {
+    clientX: longPressTarget.x + 24,
+    clientY: longPressTarget.y + 8,
+  });
+  expect(touchFallbackMove).toEqual({
+    after: touchFallbackMove.before,
+    afterForcedScroll: touchFallbackMove.before,
+    before: touchFallbackMove.before,
+    defaultPrevented: true,
+  });
+  await expect(arrowGesture).toHaveAttribute("data-direction", "up");
+  await page.evaluate(() => {
+    const host = document.querySelector(".terminal-host");
+    if (!(host instanceof HTMLElement)) throw new Error("Terminal host not found");
+    host.dispatchEvent(new TouchEvent("touchend", {
+      bubbles: true,
+      cancelable: true,
+      changedTouches: [],
+      touches: [],
+    }));
+  });
+  await expect(arrowGesture).toHaveCount(0);
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toHaveCount(0);
   expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).not.toBe("Terminal input");
-  await page.getByRole("menuitem", { name: "Copy" }).click();
-  await expect.poll(async () => {
-    const text = await page.evaluate(() => navigator.clipboard.readText());
-    return text.includes("line") && text.length > "line".length;
-  }).toBe(true);
+  const arrowFeedback = await page.evaluate((startIndex) => {
+    const messages = (Reflect.get(window, "__terminalSentMessages") as string[])
+      .map((message) => JSON.parse(message) as { type: string; data?: string })
+      .filter((message) => message.type === "input")
+      .slice(startIndex)
+      .map((message) => message.data);
+    const vibrations = Reflect.get(window, "__terminalVibrationCalls") as number[];
+    return { messages, vibrations };
+  }, arrowInputStartIndex);
+  expect(arrowFeedback.messages.length).toBeGreaterThan(0);
+  expect(arrowFeedback.messages.every((data) => data === "\x1b[A")).toBe(true);
+  expect(arrowFeedback.vibrations).toHaveLength(arrowFeedback.messages.length);
+  expect(arrowFeedback.vibrations.every((duration) => duration === 12)).toBe(true);
 
   await terminalSurface.click({ button: "right", position: { x: 20, y: 60 } });
   await page.keyboard.press("Escape");
   await expect(menu).toHaveCount(0);
-
-  await terminalSurface.dispatchEvent("pointerdown", {
-    button: 0,
-    clientX: 80,
-    clientY: 220,
-    pointerId: 7,
-    pointerType: "touch",
-  });
-  await page.waitForTimeout(650);
-  await expect(page.getByRole("menu", { name: "Terminal actions" })).toBeVisible();
-  await page.getByRole("menuitem", { name: "Select all" }).click();
-  await expect(page.getByRole("menu", { name: "Terminal actions" })).toHaveCount(0);
 
   await toolbar.getByRole("button", { name: "Sticky Control modifier" }).click();
   await page.getByLabel("Terminal input").focus();
@@ -949,13 +1023,17 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     const messages = Reflect.get(window, "__terminalSentMessages") as string[];
     return messages.map((message) => JSON.parse(message) as { type: string; data?: string });
   });
-  expect(sentMessagesAfterTypedCtrl.filter((message) => message.type === "input").map((message) => message.data)).toEqual([
+  const sentInputAfterTypedCtrl = sentMessagesAfterTypedCtrl
+    .filter((message) => message.type === "input")
+    .map((message) => message.data);
+  expect(sentInputAfterTypedCtrl).toEqual([
     "\x03",
     "\x1b[A",
     "pasted terminal text",
     "pasted terminal text",
     "native paste text",
     "ios paste target text",
+    ...arrowFeedback.messages,
     "\x03",
   ]);
 
@@ -983,13 +1061,17 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     return messages.map((message) => JSON.parse(message) as { type: string; data?: string });
   });
   const activeElementLabelAfterTouch = await page.evaluate(() => document.activeElement?.getAttribute("aria-label"));
-  expect(sentMessagesAfterTouchCtrl.filter((message) => message.type === "input").map((message) => message.data)).toEqual([
+  const sentInputAfterTouchCtrl = sentMessagesAfterTouchCtrl
+    .filter((message) => message.type === "input")
+    .map((message) => message.data);
+  expect(sentInputAfterTouchCtrl).toEqual([
     "\x03",
     "\x1b[A",
     "pasted terminal text",
     "pasted terminal text",
     "native paste text",
     "ios paste target text",
+    ...arrowFeedback.messages,
     "\x03",
     "\x03",
   ]);
