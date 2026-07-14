@@ -4,7 +4,6 @@ import { Terminal } from "xterm";
 import { TERMINAL_HISTORY_LINES } from "../../../shared/terminalHistory.js";
 import { api, isUnauthorized } from "../../api.js";
 import { createMomentumScrollGesture, TOUCH_SCROLL_TAP_THRESHOLD_PX } from "../../scrollMomentum.js";
-import type { TerminalArrowDirection } from "../../terminalArrowGesture.js";
 import { createTerminalDebugLogger, type TerminalDebugLogger } from "../../terminalDebug.js";
 import { createTerminalGestureOwner } from "../../terminalGestureOwner.js";
 import { terminalControlSequence } from "../../terminalKeys.js";
@@ -22,28 +21,11 @@ import {
   webSocketReadyStateName,
   type TerminalConnectionPhase,
 } from "./terminalProtocol.js";
+import type { TerminalArrowGestureRuntime, TerminalExplicitTap } from "./useTerminalArrowGesture.js";
 
 const TERMINAL_CONNECT_TIMEOUT_MS = 4_000;
 const TERMINAL_AUTO_RETRY_DELAYS_MS = [300, 1_000, 2_500];
 let nextTerminalPaneInstanceId = 1;
-
-export interface TerminalArrowGestureRuntime {
-  accelerationStartedAt: number;
-  direction: TerminalArrowDirection | null;
-  distance: number;
-  originX: number;
-  originY: number;
-  peakDistance: number;
-  pointerId: number;
-  viewportScrollTop: number;
-}
-
-export interface TerminalExplicitTap {
-  pointerId: number;
-  pointerType: string;
-  x: number;
-  y: number;
-}
 
 interface TerminalSessionRefs {
   arrowGestureRef: RefObject<TerminalArrowGestureRuntime | null>;
