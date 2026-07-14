@@ -946,6 +946,11 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   await expect(startHandle).toBeVisible();
   await expect(endHandle).toBeVisible();
   await expect(page.getByRole("menu", { name: "Terminal actions" })).toHaveCount(0);
+  const selectionVibrations = await page.evaluate(
+    () => Reflect.get(window, "__terminalVibrationCalls") as number[],
+  );
+  expect(selectionVibrations).toEqual([30]);
+  const arrowVibrationStartIndex = selectionVibrations.length;
 
   await terminalSurface.dispatchEvent("pointerdown", {
     bubbles: true,
@@ -1025,15 +1030,15 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   await expect(arrowGesture).toHaveCount(0);
   await expect(page.getByRole("menu", { name: "Terminal actions" })).toHaveCount(0);
   expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).not.toBe("Terminal input");
-  const arrowFeedback = await page.evaluate((startIndex) => {
+  const arrowFeedback = await page.evaluate(({ inputStartIndex, vibrationStartIndex }) => {
     const messages = (Reflect.get(window, "__terminalSentMessages") as string[])
       .map((message) => JSON.parse(message) as { type: string; data?: string })
       .filter((message) => message.type === "input")
-      .slice(startIndex)
+      .slice(inputStartIndex)
       .map((message) => message.data);
-    const vibrations = Reflect.get(window, "__terminalVibrationCalls") as number[];
+    const vibrations = (Reflect.get(window, "__terminalVibrationCalls") as number[]).slice(vibrationStartIndex);
     return { messages, vibrations };
-  }, arrowInputStartIndex);
+  }, { inputStartIndex: arrowInputStartIndex, vibrationStartIndex: arrowVibrationStartIndex });
   expect(arrowFeedback.messages.length).toBeGreaterThan(0);
   expect(arrowFeedback.messages.every((data) => data === "\x1b[A")).toBe(true);
   expect(arrowFeedback.vibrations).toHaveLength(arrowFeedback.messages.length);
