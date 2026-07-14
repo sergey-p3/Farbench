@@ -4,6 +4,7 @@ import { promisify } from "node:util";
 import type {
   GitBranch,
   GitBranchesResponse,
+  GitChange,
   GitCommit,
   GitCommitFilesResponse,
   GitFileDiffKind,
@@ -16,6 +17,42 @@ import { isLikelyBinary, MAX_TEXT_FILE_BYTES } from "./LocalFileSystem.js";
 
 const execFileAsync = promisify(execFile);
 const gitCommitPattern = /^[0-9a-f]{7,64}$/i;
+
+type GitLineStats = Pick<GitChange, "additions" | "deletions">;
+
+function parseNumstat(output: string): Map<string, GitLineStats> {
+  const stats = new Map<string, GitLineStats>();
+  let offset = 0;
+  while (offset < output.length) {
+    const recordEnd = output.indexOf("\0", offset);
+    if (recordEnd === -1) break;
+    const record = output.slice(offset, recordEnd);
+    offset = recordEnd + 1;
+
+    const firstTab = record.indexOf("\t");
+    const secondTab = record.indexOf("\t", firstTab + 1);
+    if (firstTab === -1 || secondTab === -1) continue;
+
+    const added = record.slice(0, firstTab);
+    const deleted = record.slice(firstTab + 1, secondTab);
+    let path = record.slice(secondTab + 1);
+    if (!path) {
+      const oldPathEnd = output.indexOf("\0", offset);
+      if (oldPathEnd === -1) break;
+      offset = oldPathEnd + 1;
+      const newPathEnd = output.indexOf("\0", offset);
+      if (newPathEnd === -1) break;
+      path = output.slice(offset, newPathEnd);
+      offset = newPathEnd + 1;
+    }
+
+    stats.set(path, {
+      additions: added === "-" ? 0 : Number.parseInt(added, 10) || 0,
+      deletions: deleted === "-" ? 0 : Number.parseInt(deleted, 10) || 0,
+    });
+  }
+  return stats;
+}
 
 class GitFileDiffContentError extends Error {
   constructor(
@@ -52,26 +89,48 @@ function unifiedAddedFilePatch(path: string, content: string): string {
 /** Git operations performed within a validated local workspace. */
 export class LocalGitRepository {
   async status(rootPath: string): Promise<GitStatusResponse> {
-    const { stdout } = await execFileAsync("git", ["status", "--porcelain=v1", "-uall"], { cwd: rootPath });
-    return {
-      changes: stdout
-        .split("\n")
-        .filter(Boolean)
-        .map((line) => {
-          const indexStatus = line[0] ?? " ";
-          const worktreeStatus = line[1] ?? " ";
-          const rawPath = line.slice(3);
-          const path = rawPath.includes(" -> ") ? rawPath.slice(rawPath.indexOf(" -> ") + 4) : rawPath;
-          const staged = indexStatus !== " " && indexStatus !== "?";
-          const untracked = indexStatus === "?" && worktreeStatus === "?";
-          return {
-            path,
-            status: `${indexStatus}${worktreeStatus}`.trim(),
-            staged,
-            diffAvailable: staged || untracked || (worktreeStatus !== " " && worktreeStatus !== "?"),
-          };
-        }),
-    };
+    const [{ stdout: statusOutput }, { stdout: unstagedOutput }, { stdout: stagedOutput }] = await Promise.all([
+      execFileAsync("git", ["status", "--porcelain=v1", "-z", "-uall"], { cwd: rootPath }),
+      execFileAsync("git", ["diff", "--numstat", "-z", "--"], { cwd: rootPath }),
+      execFileAsync("git", ["diff", "--cached", "--numstat", "-z", "--"], { cwd: rootPath }),
+    ]);
+    const unstagedStats = parseNumstat(unstagedOutput);
+    const stagedStats = parseNumstat(stagedOutput);
+    const records = statusOutput.split("\0");
+    const parsedChanges: Array<{
+      change: Omit<GitChange, "additions" | "deletions">;
+      untracked: boolean;
+    }> = [];
+
+    for (let index = 0; index < records.length; index += 1) {
+      const record = records[index];
+      if (!record) continue;
+      const indexStatus = record[0] ?? " ";
+      const worktreeStatus = record[1] ?? " ";
+      const path = record.slice(3);
+      const staged = indexStatus !== " " && indexStatus !== "?";
+      const untracked = indexStatus === "?" && worktreeStatus === "?";
+      parsedChanges.push({
+        change: {
+          path,
+          status: `${indexStatus}${worktreeStatus}`.trim(),
+          staged,
+          diffAvailable: staged || untracked || (worktreeStatus !== " " && worktreeStatus !== "?"),
+        },
+        untracked,
+      });
+      if (indexStatus === "R" || indexStatus === "C" || worktreeStatus === "R" || worktreeStatus === "C") {
+        index += 1;
+      }
+    }
+
+    const changes = await Promise.all(parsedChanges.map(async ({ change, untracked }): Promise<GitChange> => {
+      const lineStats = untracked
+        ? await this.untrackedLineStats(rootPath, change.path)
+        : (change.staged ? stagedStats : unstagedStats).get(change.path) ?? { additions: 0, deletions: 0 };
+      return { ...change, ...lineStats };
+    }));
+    return { changes };
   }
 
   async history(rootPath: string, requestedBranch?: string): Promise<GitHistoryResponse> {
@@ -274,6 +333,23 @@ export class LocalGitRepository {
 
   private async currentBranch(rootPath: string): Promise<string> {
     return (await execFileAsync("git", ["branch", "--show-current"], { cwd: rootPath })).stdout.trim();
+  }
+
+  private async untrackedLineStats(rootPath: string, path: string): Promise<GitLineStats> {
+    const resolved = resolveWorkspacePath(rootPath, path);
+    let output = "";
+    try {
+      output = (await execFileAsync(
+        "git",
+        ["diff", "--no-index", "--numstat", "-z", "--", "/dev/null", resolved.relativePath],
+        { cwd: rootPath },
+      )).stdout;
+    } catch (error) {
+      if (error && typeof error === "object" && "stdout" in error && typeof error.stdout === "string") {
+        output = error.stdout;
+      }
+    }
+    return parseNumstat(output).values().next().value ?? { additions: 0, deletions: 0 };
   }
 
   private async localBranchNames(rootPath: string): Promise<string[]> {

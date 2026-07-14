@@ -131,6 +131,7 @@ describe("LocalAgent git integration", () => {
     const agent = new LocalAgent();
     const added = await agent.gitFileDiff(dir, "added.txt");
     const deleted = await agent.gitFileDiff(dir, "deleted.txt");
+    const status = await agent.gitStatus(dir);
 
     expect(added).toMatchObject({
       path: "added.txt",
@@ -146,6 +147,14 @@ describe("LocalAgent git integration", () => {
       current: "",
       message: null,
     });
+    expect(status.changes.find((change) => change.path === "added.txt")).toMatchObject({
+      additions: 1,
+      deletions: 0,
+    });
+    expect(status.changes.find((change) => change.path === "deleted.txt")).toMatchObject({
+      additions: 0,
+      deletions: 1,
+    });
   });
 
   it("reports tracked file changes and returns a path-scoped diff", async () => {
@@ -157,13 +166,16 @@ describe("LocalAgent git integration", () => {
     git(["add", "app.txt"], dir);
     git(["commit", "-m", "initial"], dir);
 
-    writeFileSync(join(dir, "app.txt"), "two\n");
+    writeFileSync(join(dir, "app.txt"), "two\nthree\n");
 
     const agent = new LocalAgent();
     const status = await agent.gitStatus(dir);
     const diff = await agent.gitDiff(dir, "app.txt");
 
-    expect(status.changes.some((change) => change.path === "app.txt")).toBe(true);
+    expect(status.changes.find((change) => change.path === "app.txt")).toMatchObject({
+      additions: 2,
+      deletions: 1,
+    });
     expect(diff).toContain("-one");
     expect(diff).toContain("+two");
   });
@@ -187,6 +199,7 @@ describe("LocalAgent git integration", () => {
 
     expect(appChange?.staged).toBe(true);
     expect(appChange?.diffAvailable).toBe(true);
+    expect(appChange).toMatchObject({ additions: 1, deletions: 1 });
     expect(diff).toContain("-one");
     expect(diff).toContain("+two");
   });
@@ -208,6 +221,8 @@ describe("LocalAgent git integration", () => {
       status: "??",
       staged: false,
       diffAvailable: true,
+      additions: 2,
+      deletions: 0,
     });
     expect(diff).toMatchObject({
       path: "new.txt",

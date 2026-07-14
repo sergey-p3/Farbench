@@ -81,6 +81,8 @@ export interface GitChange {
   status: string;
   staged: boolean;
   diffAvailable: boolean;
+  additions: number;
+  deletions: number;
 }
 
 export interface GitStatusResponse {

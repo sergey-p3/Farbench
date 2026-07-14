@@ -171,6 +171,12 @@
   width: max-content;
 }
 
+.git-file-status {
+  align-items: center;
+  display: flex;
+  gap: 8px;
+}
+
 .git-file-row-actions {
   align-items: stretch;
   background: #ffffff;
@@ -182,16 +188,9 @@
 }
 
 .git-file-line-stats {
-  align-content: center;
-  background: #f8fafb;
-  border: 1px solid #dce3e9;
-  border-radius: 6px;
-  display: grid;
-  font-size: 0.72rem;
-  gap: 2px;
-  min-width: 48px;
-  padding: 4px 7px;
-  text-align: right;
+  display: inline-flex;
+  font-variant-numeric: tabular-nums;
+  gap: 6px;
 }
 
 .git-stage-button {
