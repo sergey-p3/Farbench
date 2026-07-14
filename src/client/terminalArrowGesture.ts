@@ -63,6 +63,10 @@ export function shouldResetTerminalArrowAcceleration(peakDistance: number, nextD
   return peakDistance - nextDistance >= TERMINAL_ARROW_ACCELERATION_RESET_PX;
 }
 
+export function shouldActivateTerminalSelectionAfterArrowGesture(peakDistance: number): boolean {
+  return peakDistance < TERMINAL_ARROW_DEAD_ZONE_PX;
+}
+
 function clamp(value: number, minimum: number, maximum: number): number {
   return Math.max(minimum, Math.min(maximum, value));
 }

@@ -1,5 +1,6 @@
 import { describe, expect, test } from "vitest";
 import {
+  shouldActivateTerminalSelectionAfterArrowGesture,
   shouldResetTerminalArrowAcceleration,
   terminalArrowRepeatDelay,
   terminalArrowVector,
@@ -39,5 +40,12 @@ describe("terminal arrow gesture", () => {
     expect(shouldResetTerminalArrowAcceleration(130, 110)).toBe(false);
     expect(shouldResetTerminalArrowAcceleration(130, 96)).toBe(true);
     expect(shouldResetTerminalArrowAcceleration(130, 160)).toBe(false);
+  });
+
+  test("activates selection only when release stays inside the arrow dead zone", () => {
+    expect(shouldActivateTerminalSelectionAfterArrowGesture(0)).toBe(true);
+    expect(shouldActivateTerminalSelectionAfterArrowGesture(21)).toBe(true);
+    expect(shouldActivateTerminalSelectionAfterArrowGesture(22)).toBe(false);
+    expect(shouldActivateTerminalSelectionAfterArrowGesture(80)).toBe(false);
   });
 });

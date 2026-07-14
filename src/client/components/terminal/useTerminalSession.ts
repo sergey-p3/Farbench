@@ -67,6 +67,7 @@ interface TerminalSessionActions {
   clearArrowGesture: () => void;
   clearLongPress: () => void;
   focusTerminal: () => void;
+  releaseArrowGesture: () => void;
   restoreArrowGestureScrollPosition: () => void;
   sendTerminalInput: (data: string) => void;
   updateArrowGesture: (pointerId: number | null, clientX: number, clientY: number) => boolean;
@@ -102,6 +103,7 @@ export function useTerminalSession({
     clearArrowGesture,
     clearLongPress,
     focusTerminal,
+    releaseArrowGesture,
     restoreArrowGestureScrollPosition,
     sendTerminalInput,
     updateArrowGesture,
@@ -343,7 +345,7 @@ export function useTerminalSession({
     };
     const resetTouchScroll = () => {
       const hadArrowGesture = arrowGestureRef.current !== null;
-      if (hadArrowGesture) clearArrowGesture();
+      if (hadArrowGesture) releaseArrowGesture();
       touchScrollStartY = null;
       if (hadArrowGesture) touchMomentum.cancel();
       else touchMomentum.end();
@@ -617,6 +619,7 @@ export function useTerminalSession({
     clearLongPress,
     focusTerminal,
     onUnauthorized,
+    releaseArrowGesture,
     restoreArrowGestureScrollPosition,
     retryNonce,
     sendTerminalInput,

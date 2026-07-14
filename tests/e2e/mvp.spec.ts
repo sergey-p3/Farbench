@@ -933,13 +933,41 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   await expect(startHandle).toHaveCount(0);
   await expect(endHandle).toHaveCount(0);
   expect(await page.evaluate(() => document.activeElement?.getAttribute("aria-label"))).not.toBe("Terminal input");
-  await terminalSurface.dispatchEvent("pointerout", {
+  await terminalSurface.dispatchEvent("pointerup", {
     bubbles: true,
     button: 0,
     cancelable: true,
     clientX: longPressTarget.x + 24,
     clientY: longPressTarget.y + 68,
     pointerId: 71,
+    pointerType: "touch",
+  });
+  await expect(arrowGesture).toHaveCount(0);
+  await expect(startHandle).toBeVisible();
+  await expect(endHandle).toBeVisible();
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toHaveCount(0);
+
+  await terminalSurface.dispatchEvent("pointerdown", {
+    bubbles: true,
+    button: 0,
+    cancelable: true,
+    clientX: longPressTarget.x + 24,
+    clientY: longPressTarget.y + 68,
+    pointerId: 72,
+    pointerType: "touch",
+  });
+  await page.waitForTimeout(1_100);
+  await expect(arrowGesture).toBeVisible();
+  await expect(arrowGesture).toHaveAttribute("data-direction", "inactive");
+  await expect(startHandle).toHaveCount(0);
+  await expect(endHandle).toHaveCount(0);
+  await terminalSurface.dispatchEvent("pointerout", {
+    bubbles: true,
+    button: 0,
+    cancelable: true,
+    clientX: longPressTarget.x + 24,
+    clientY: longPressTarget.y + 68,
+    pointerId: 72,
     pointerType: "touch",
     relatedTarget: null,
   });
@@ -950,7 +978,7 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     cancelable: true,
     clientX: longPressTarget.x + 24,
     clientY: longPressTarget.y + 68,
-    pointerId: 71,
+    pointerId: 72,
     pointerType: "touch",
   });
   await expect(arrowGesture).toHaveAttribute("data-direction", "inactive");
@@ -965,7 +993,7 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     viewport.scrollTop = before > 0 ? 0 : Math.min(40, maximumScrollTop);
     viewport.dispatchEvent(new Event("scroll"));
     const afterForcedScroll = viewport.scrollTop;
-    const touch = new Touch({ identifier: 71, target: host, clientX, clientY });
+    const touch = new Touch({ identifier: 72, target: host, clientX, clientY });
     const move = new TouchEvent("touchmove", {
       bubbles: true,
       cancelable: true,
