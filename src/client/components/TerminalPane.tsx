@@ -3,6 +3,7 @@ import type { FitAddon } from "xterm-addon-fit";
 import type { Terminal } from "xterm";
 import { copyTextToClipboard } from "../clipboard.js";
 import {
+  shouldActivateTerminalSelectionAfterArrowGesture,
   shouldResetTerminalArrowAcceleration,
   terminalArrowRepeatDelay,
   terminalArrowVector,
@@ -383,6 +384,16 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     return true;
   }, [terminalBufferCellFromPointer, updateTerminalSelectionHandles]);
 
+  const releaseArrowGesture = useCallback(() => {
+    const gesture = arrowGestureRef.current;
+    if (!gesture) return;
+
+    const activateSelection = shouldActivateTerminalSelectionAfterArrowGesture(gesture.peakDistance);
+    const { originX, originY } = gesture;
+    clearArrowGesture();
+    if (activateSelection) selectTerminalWordAtPointer(originX, originY);
+  }, [clearArrowGesture, selectTerminalWordAtPointer]);
+
   const openTerminalActionMenu = useCallback((x: number, y: number) => {
     clearLongPress();
     const nextX = Math.max(8, Math.min(x, window.innerWidth - TERMINAL_ACTION_MENU_WIDTH_PX - 8));
@@ -468,7 +479,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       event.stopPropagation();
       explicitTapStartRef.current = null;
       clearLongPress();
-      clearArrowGesture();
+      releaseArrowGesture();
       return;
     }
     const tapStart = explicitTapStartRef.current;
@@ -483,7 +494,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     }
     explicitTapStartRef.current = null;
     clearLongPress();
-  }, [clearArrowGesture, clearLongPress, focusTerminalAtPointer]);
+  }, [clearLongPress, focusTerminalAtPointer, releaseArrowGesture]);
 
   const copyTerminalSelection = useCallback(async () => {
     const terminal = terminalRef.current;
@@ -646,6 +657,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
       clearArrowGesture,
       clearLongPress,
       focusTerminal,
+      releaseArrowGesture,
       restoreArrowGestureScrollPosition,
       sendTerminalInput,
       updateArrowGesture,
