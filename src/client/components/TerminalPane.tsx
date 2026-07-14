@@ -1,7 +1,17 @@
 import { useCallback, useEffect, useRef, useState } from "react";
 import type { FitAddon } from "xterm-addon-fit";
 import type { Terminal } from "xterm";
+import {
+  agentInputSubmission,
+  clearAgentInputDraft,
+  loadAgentInputDraft,
+  saveAgentInputDraft,
+} from "../agentInputDraft.js";
 import type { TerminalDebugLogger } from "../terminalDebug.js";
+import {
+  AgentInputComposer,
+  type AgentInputComposerMode,
+} from "./terminal/AgentInputComposer.js";
 import {
   EmptyTerminalPane,
   TerminalActionMenu,
@@ -25,6 +35,8 @@ import { useTerminalSession } from "./terminal/useTerminalSession.js";
 interface TerminalPaneProps {
   sessionId: string | null;
   displayKind?: "terminal" | "agent";
+  isAgentComposerRequested?: boolean;
+  onAgentComposerClosed?: (sessionId: string) => void;
   onOpenCreateSheet: () => void;
   onUnauthorized?: () => void;
 }
@@ -33,11 +45,19 @@ const ACTION_MENU_WIDTH_PX = 168;
 
 export { terminalSocketUrl };
 
-export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreateSheet, onUnauthorized }: TerminalPaneProps) {
+export function TerminalPane({
+  sessionId,
+  displayKind = "terminal",
+  isAgentComposerRequested = false,
+  onAgentComposerClosed,
+  onOpenCreateSheet,
+  onUnauthorized,
+}: TerminalPaneProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
   const stageRef = useRef<HTMLDivElement | null>(null);
   const containerRef = useRef<HTMLDivElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
+  const agentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const pasteCaptureRef = useRef<HTMLTextAreaElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -51,6 +71,12 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
   const [retryNonce, setRetryNonce] = useState(0);
   const [actionMenu, setActionMenu] = useState<TerminalActionMenuState | null>(null);
   const [isPasteCaptureVisible, setIsPasteCaptureVisible] = useState(false);
+  const [agentInputDraft, setAgentInputDraft] = useState(() =>
+    displayKind === "agent" && sessionId ? loadAgentInputDraft(sessionId) : "",
+  );
+  const [agentInputComposerMode, setAgentInputComposerMode] = useState<AgentInputComposerMode>(() =>
+    agentInputDraft ? "open" : "closed",
+  );
 
   const input = useTerminalInput({ socketRef, terminalDebugRef, terminalRef, setStatus });
   const selection = useTerminalSelection({ containerRef, stageRef, terminalRef, setStatus });
@@ -71,6 +97,57 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     stageRef,
     terminalRef,
   });
+
+  const closeAgentInputComposer = useCallback(() => {
+    setAgentInputComposerMode("closed");
+    if (sessionId) onAgentComposerClosed?.(sessionId);
+  }, [onAgentComposerClosed, sessionId]);
+
+  const minimizeAgentInputComposer = useCallback(() => {
+    setAgentInputComposerMode("minimized");
+    if (sessionId) onAgentComposerClosed?.(sessionId);
+  }, [onAgentComposerClosed, sessionId]);
+
+  const updateAgentInputDraft = useCallback((text: string) => {
+    setAgentInputDraft(text);
+    if (sessionId) saveAgentInputDraft(sessionId, text);
+  }, [sessionId]);
+
+  const submitAgentInput = useCallback(() => {
+    if (!sessionId || !agentInputDraft) return;
+    const data = agentInputSubmission(
+      agentInputDraft,
+      terminalRef.current?.modes.bracketedPasteMode ?? false,
+    );
+    if (!input.sendTerminalInput(data)) return;
+    clearAgentInputDraft(sessionId);
+    setAgentInputDraft("");
+    setAgentInputComposerMode("closed");
+    onAgentComposerClosed?.(sessionId);
+    input.focusTerminal();
+  }, [agentInputDraft, input.focusTerminal, input.sendTerminalInput, onAgentComposerClosed, sessionId]);
+
+  useEffect(() => {
+    if (displayKind !== "agent" || !isAgentComposerRequested) return;
+    closeActionMenu();
+    setAgentInputComposerMode("open");
+  }, [displayKind, isAgentComposerRequested]);
+
+  useEffect(() => {
+    if (agentInputComposerMode !== "open") return;
+    const focusTimer = window.setTimeout(() => agentInputRef.current?.focus(), 0);
+    const handleKeyDown = (event: KeyboardEvent) => {
+      if (event.key !== "Escape") return;
+      event.preventDefault();
+      event.stopPropagation();
+      closeAgentInputComposer();
+    };
+    document.addEventListener("keydown", handleKeyDown, true);
+    return () => {
+      window.clearTimeout(focusTimer);
+      document.removeEventListener("keydown", handleKeyDown, true);
+    };
+  }, [agentInputComposerMode, closeAgentInputComposer]);
 
   const retryConnection = useCallback(() => {
     autoReconnectAttemptsRef.current = 0;
@@ -231,6 +308,18 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
         }}
         pasteCaptureRef={pasteCaptureRef}
       />
+      {displayKind === "agent" ? (
+        <AgentInputComposer
+          draft={agentInputDraft}
+          mode={agentInputComposerMode}
+          onCancel={closeAgentInputComposer}
+          onChange={updateAgentInputDraft}
+          onMinimize={minimizeAgentInputComposer}
+          onRestore={() => setAgentInputComposerMode("open")}
+          onSubmit={submitAgentInput}
+          textareaRef={agentInputRef}
+        />
+      ) : null}
       <TerminalKeybar
         isCtrlActive={input.isCtrlActive}
         onClick={input.handleToolbarClick}

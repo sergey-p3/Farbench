@@ -24,6 +24,7 @@ export function useWorkspaceShell(onUnauthorized: () => void) {
   const [isTopMenuOpen, setIsTopMenuOpen] = useState(false);
   const [isTopMenuPinned, setIsTopMenuPinned] = useState(false);
   const [isShortcutRailOpen, setIsShortcutRailOpen] = useState(true);
+  const [agentComposerSessionId, setAgentComposerSessionId] = useState<string | null>(null);
   const requestRef = useRef(0);
   const selectedWorkspaceIdRef = useRef(layout.selectedWorkspaceId);
 
@@ -133,6 +134,7 @@ export function useWorkspaceShell(onUnauthorized: () => void) {
       if ((item.kind === "agent" || item.kind === "terminal") && item.sessionId) {
         await api.killSession(item.workspaceId, item.sessionId);
       }
+      if (item.sessionId) closeAgentComposer(item.sessionId);
       setLayout((current) => removeItem(current, item.id));
     } catch (error) {
       const message = apiErrorMessage(error, "Unable to close item", onUnauthorized);
@@ -171,8 +173,19 @@ export function useWorkspaceShell(onUnauthorized: () => void) {
     setIsTopMenuOpen(true);
   }
 
+  function openAgentComposer(): void {
+    if (active?.kind !== "agent" || !active.sessionId) return;
+    setAgentComposerSessionId(active.sessionId);
+    collapseUnpinnedTopMenu();
+  }
+
+  function closeAgentComposer(sessionId: string): void {
+    setAgentComposerSessionId((current) => current === sessionId ? null : current);
+  }
+
   return {
     active,
+    agentComposerSessionId,
     closeItem,
     createBrowserItem,
     createSession,
@@ -186,6 +199,8 @@ export function useWorkspaceShell(onUnauthorized: () => void) {
     isTopMenuPinned,
     layout,
     loadWorkspaces,
+    closeAgentComposer,
+    openAgentComposer,
     selectedWorkspace,
     selectWorkspace,
     setIsCreateOpen,

@@ -19,6 +19,7 @@
   grid-template-rows: auto minmax(0, 1fr) auto;
   overflow: hidden;
   padding-bottom: var(--terminal-keyboard-chrome-inset);
+  position: relative;
 }
 
 .preview-panel {
@@ -263,6 +264,159 @@
 .terminal-paste-capture:focus {
   outline: 2px solid #5a9aaa;
   outline-offset: 1px;
+}
+
+.agent-input-backdrop {
+  align-items: center;
+  background: rgb(5 10 15 / 58%);
+  display: flex;
+  inset: 0;
+  justify-content: center;
+  padding: 16px;
+  position: absolute;
+  z-index: 30;
+}
+
+.agent-input-dialog {
+  background: #f8fafb;
+  border: 1px solid #6f8294;
+  border-radius: 10px;
+  box-shadow: 0 18px 52px rgb(0 0 0 / 42%);
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+  height: min(520px, calc(100% - 32px));
+  max-height: 100%;
+  max-width: 720px;
+  overflow: hidden;
+  width: 100%;
+}
+
+.agent-input-header {
+  align-items: center;
+  border-bottom: 1px solid #d2dae2;
+  display: flex;
+  justify-content: space-between;
+  padding: 10px 12px;
+}
+
+.agent-input-header > div:first-child {
+  display: grid;
+  gap: 2px;
+}
+
+.agent-input-header strong {
+  color: #263442;
+}
+
+.agent-input-header small {
+  color: #687586;
+  font-size: 0.72rem;
+}
+
+.agent-input-window-actions {
+  display: flex;
+  gap: 4px;
+}
+
+.agent-input-window-actions button,
+.agent-input-minimized button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: #526171;
+  display: inline-flex;
+  justify-content: center;
+  min-height: 32px;
+  min-width: 32px;
+  padding: 4px 7px;
+}
+
+.agent-input-window-actions button:hover,
+.agent-input-window-actions button:focus-visible,
+.agent-input-minimized button:hover,
+.agent-input-minimized button:focus-visible {
+  background: #e6edf2;
+  outline: none;
+}
+
+.agent-input-form {
+  min-height: 0;
+  padding: 10px;
+  position: relative;
+}
+
+.agent-input-form textarea {
+  background: #ffffff;
+  border: 1px solid #aebac6;
+  border-radius: 8px;
+  color: #1f2933;
+  font: 1rem/1.45 Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  height: 100%;
+  min-height: 180px;
+  padding: 12px 54px 54px 12px;
+  resize: none;
+  width: 100%;
+}
+
+.agent-input-form textarea:focus {
+  border-color: #5a9aaa;
+  outline: 2px solid rgb(90 154 170 / 28%);
+  outline-offset: 1px;
+}
+
+.agent-input-send {
+  align-items: center;
+  background: #24435f;
+  border: 1px solid #24435f;
+  border-radius: 999px;
+  bottom: 24px;
+  color: #ffffff;
+  display: inline-flex;
+  font-size: 1.1rem;
+  height: 38px;
+  justify-content: center;
+  line-height: 1;
+  padding: 0 0 0 2px;
+  position: absolute;
+  right: 24px;
+  width: 38px;
+}
+
+.agent-input-send:focus-visible {
+  outline: 2px solid #5a9aaa;
+  outline-offset: 2px;
+}
+
+.agent-input-minimized {
+  align-items: center;
+  background: #f8fafb;
+  border: 1px solid #8192a2;
+  border-radius: 8px;
+  bottom: 44px;
+  box-shadow: 0 10px 28px rgb(0 0 0 / 34%);
+  display: flex;
+  left: 12px;
+  max-width: min(360px, calc(100% - 24px));
+  padding: 3px;
+  position: absolute;
+  z-index: 25;
+}
+
+.agent-input-minimized .agent-input-minimized-restore {
+  color: #263442;
+  flex: 1 1 auto;
+  gap: 8px;
+  justify-content: flex-start;
+  min-width: 0;
+}
+
+.agent-input-minimized-restore span:last-child {
+  font-size: 0.82rem;
+  font-weight: 700;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
 }
 
 .terminal-keybar {

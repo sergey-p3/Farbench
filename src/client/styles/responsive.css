@@ -1,4 +1,13 @@
 @media (max-width: 760px) {
+  .agent-input-backdrop {
+    align-items: stretch;
+    padding: 10px;
+  }
+
+  .agent-input-dialog {
+    height: auto;
+  }
+
   .session-chip {
     max-width: 100%;
   }

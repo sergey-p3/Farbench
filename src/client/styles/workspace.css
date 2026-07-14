@@ -33,6 +33,10 @@
   z-index: 10;
 }
 
+.shell-top-bar.agent-input-available {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto auto;
+}
+
 .top-menu-floating .shell-top-bar {
   position: absolute;
   right: 8px;
