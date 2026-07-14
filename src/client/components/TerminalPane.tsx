@@ -1,18 +1,14 @@
 import { useCallback, useEffect, useRef, useState } from "react";
-import { FitAddon } from "xterm-addon-fit";
-import { Terminal } from "xterm";
-import { api, isUnauthorized } from "../api.js";
+import type { FitAddon } from "xterm-addon-fit";
+import type { Terminal } from "xterm";
 import { copyTextToClipboard } from "../clipboard.js";
-import { createMomentumScrollGesture, TOUCH_SCROLL_TAP_THRESHOLD_PX } from "../scrollMomentum.js";
 import {
   shouldResetTerminalArrowAcceleration,
   terminalArrowRepeatDelay,
   terminalArrowVector,
   type TerminalArrowDirection,
 } from "../terminalArrowGesture.js";
-import { createTerminalGestureOwner } from "../terminalGestureOwner.js";
-import { scrollTerminalViewportByPixels } from "../terminalPixelScroller.js";
-import { terminalControlSequence, terminalKeyLabels, type TerminalToolbarKey } from "../terminalKeys.js";
+import { terminalControlSequence, type TerminalToolbarKey } from "../terminalKeys.js";
 import {
   terminalCellFromPointer,
   terminalHandleLayoutFromSelection,
@@ -22,10 +18,30 @@ import {
   type TerminalBufferCell,
   type TerminalSelectionHandleLayout,
 } from "../terminalSelection.js";
-import { terminalKeyboardChromeInset, terminalViewportFitDelayMs } from "../terminalViewport.js";
-import { createTerminalDebugLogger, type TerminalDebugLogger } from "../terminalDebug.js";
-import { createTerminalWriteQueue, terminalHistoryReplay } from "../terminalWriteQueue.js";
-import { TERMINAL_HISTORY_LINES } from "../../shared/terminalHistory.js";
+import type { TerminalDebugLogger } from "../terminalDebug.js";
+import {
+  EmptyTerminalPane,
+  TerminalActionMenu,
+  TerminalArrowGesture,
+  TerminalConnectionStatus,
+  TerminalKeybar,
+  TerminalSelectionHandles,
+  TerminalStatus,
+  type TerminalActionMenuState,
+  type TerminalArrowOverlayState,
+  type TerminalSelectionHandleKind,
+} from "./terminal/TerminalChrome.js";
+import {
+  terminalConnectionStatusText,
+  terminalSocketUrl,
+  webSocketReadyStateName,
+  type TerminalConnectionPhase,
+} from "./terminal/terminalProtocol.js";
+import {
+  useTerminalSession,
+  type TerminalArrowGestureRuntime,
+  type TerminalExplicitTap,
+} from "./terminal/useTerminalSession.js";
 
 interface TerminalPaneProps {
   sessionId: string | null;
@@ -34,51 +50,12 @@ interface TerminalPaneProps {
   onUnauthorized?: () => void;
 }
 
-type TerminalSocketMessage =
-  | { type: "scrollback"; data: string }
-  | { type: "output"; data: string }
-  | { type: "error"; error: string }
-  | { type: "exit" };
-
-interface TerminalActionMenuState {
-  pointerX: number;
-  pointerY: number;
-  x: number;
-  y: number;
-}
-
-interface TerminalArrowGestureRuntime {
-  accelerationStartedAt: number;
-  direction: TerminalArrowDirection | null;
-  distance: number;
-  originX: number;
-  originY: number;
-  peakDistance: number;
-  pointerId: number;
-  viewportScrollTop: number;
-}
-
-interface TerminalArrowOverlayState {
-  direction: TerminalArrowDirection | null;
-  originX: number;
-  originY: number;
-}
-
-type TerminalSelectionHandleKind = "start" | "end";
-type ConnectionPhase = "connecting" | "attaching" | "loading-history" | null;
-
 const LONG_PRESS_MS = 1_000;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 const ARROW_INPUT_VIBRATION_MS = 12;
 const TERMINAL_ACTION_MENU_WIDTH_PX = 168;
-const TERMINAL_CONNECT_TIMEOUT_MS = 4_000;
-const TERMINAL_AUTO_RETRY_DELAYS_MS = [300, 1_000, 2_500];
-let nextTerminalPaneInstanceId = 1;
 
-export function terminalSocketUrl(locationLike: Pick<Location, "protocol" | "host"> = window.location): string {
-  const protocol = locationLike.protocol === "https:" ? "wss:" : "ws:";
-  return `${protocol}//${locationLike.host}/ws/terminal`;
-}
+export { terminalSocketUrl };
 
 export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreateSheet, onUnauthorized }: TerminalPaneProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -106,10 +83,10 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
   const arrowGestureRef = useRef<TerminalArrowGestureRuntime | null>(null);
   const arrowRepeatTimerRef = useRef<number | null>(null);
   const cancelScrollForArrowGestureRef = useRef<(() => void) | null>(null);
-  const explicitTapStartRef = useRef<{ pointerId: number; pointerType: string; x: number; y: number } | null>(null);
+  const explicitTapStartRef = useRef<TerminalExplicitTap | null>(null);
   const selectionDragRef = useRef<{ anchor: TerminalBufferCell; handle: TerminalSelectionHandleKind; pointerId: number } | null>(null);
   const [status, setStatus] = useState<string | null>(null);
-  const [connectionPhase, setConnectionPhase] = useState<ConnectionPhase>(null);
+  const [connectionPhase, setConnectionPhase] = useState<TerminalConnectionPhase>(null);
   const [retryNonce, setRetryNonce] = useState(0);
   const [isCtrlActive, setIsCtrlActive] = useState(false);
   const [actionMenu, setActionMenu] = useState<TerminalActionMenuState | null>(null);
@@ -664,546 +641,52 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     };
   }, [actionMenu, cancelTerminalPointerGesture, focusTerminal]);
 
-  useEffect(() => {
-    setStatus(null);
-    setConnectionPhase(null);
-    updateCtrlActive(false);
-
-    if (!sessionId || !containerRef.current) {
-      return;
-    }
-    if (autoReconnectSessionIdRef.current !== sessionId) {
-      autoReconnectSessionIdRef.current = sessionId;
-      autoReconnectAttemptsRef.current = 0;
-    }
-
-    const debug = createTerminalDebugLogger({
-      component: "TerminalPane",
-      instanceId: nextTerminalPaneInstanceId++,
-      sessionId,
-    });
-    const terminal = new Terminal({
-      convertEol: true,
-      cursorBlink: true,
-      fontFamily: "JetBrains Mono, Menlo, Monaco, Consolas, monospace",
-      fontSize: 13,
-      scrollback: TERMINAL_HISTORY_LINES,
-      theme: {
-        background: "#101820",
-        foreground: "#d7dee8",
-      },
-    });
-    const fitAddon = new FitAddon();
-    const socketUrl = terminalSocketUrl();
-    const socket = new WebSocket(socketUrl);
-    let authProbeStarted = false;
-    let connectTimeoutTimer: number | null = null;
-    let deferredFitAndResizeTimer: number | null = null;
-    let reconnectScheduled = false;
-    let reconnectTimer: number | null = null;
-
-    terminalDebugRef.current = debug;
-    terminalRef.current = terminal;
-    fitAddonRef.current = fitAddon;
-    socketRef.current = socket;
-    setConnectionPhase("connecting");
-    debug("effect.start", {
-      hasContainer: true,
-      readyState: webSocketReadyStateName(socket.readyState),
-      socketUrl,
-    });
-    receivedScrollbackRef.current = false;
-    terminal.loadAddon(fitAddon);
-    terminal.open(containerRef.current);
-    const writeQueue = createTerminalWriteQueue(terminal);
-    debug("terminal.open", { cols: terminal.cols, rows: terminal.rows });
-    terminal.attachCustomKeyEventHandler((event) => {
-      if ((event.ctrlKey || event.metaKey) && !event.altKey && !event.shiftKey && event.key.toLowerCase() === "v") {
-        return false;
-      }
-      return true;
-    });
-
-    const fit = () => {
-      try {
-        fitAddon.fit();
-        debug("fit", { cols: terminal.cols, rows: terminal.rows });
-      } catch (error) {
-        debug("fit.failed", { error: error instanceof Error ? error.message : "unknown fit error" });
-        return;
-      }
-    };
-
-    const sendResize = () => {
-      if (!isCurrentSocket() || socket.readyState !== WebSocket.OPEN) {
-        debug("resize.skipped", {
-          current: isCurrentSocket(),
-          readyState: webSocketReadyStateName(socket.readyState),
-        });
-        return;
-      }
-      debug("resize.sent", { cols: terminal.cols, rows: terminal.rows });
-      socket.send(JSON.stringify({ type: "resize", cols: terminal.cols, rows: terminal.rows }));
-    };
-
-    const fitAndResize = () => {
-      fit();
-      sendResize();
-    };
-
-    const clearDeferredFitAndResize = () => {
-      if (deferredFitAndResizeTimer === null) return;
-      window.clearTimeout(deferredFitAndResizeTimer);
-      deferredFitAndResizeTimer = null;
-    };
-
-    const clearConnectTimeout = () => {
-      if (connectTimeoutTimer === null) return;
-      window.clearTimeout(connectTimeoutTimer);
-      connectTimeoutTimer = null;
-    };
-
-    const clearReconnectTimer = () => {
-      if (reconnectTimer === null) return;
-      window.clearTimeout(reconnectTimer);
-      reconnectTimer = null;
-    };
-
-    const syncVisualViewport = () => {
-      const viewport = window.visualViewport;
-      if (rootRef.current && viewport) {
-        const metrics = {
-          innerHeight: window.innerHeight,
-          maxTouchPoints: navigator.maxTouchPoints,
-          userAgent: navigator.userAgent,
-          visualViewportHeight: viewport.height,
-          visualViewportOffsetTop: viewport.offsetTop,
-        };
-        rootRef.current.style.setProperty("--terminal-visual-height", `${viewport.height}px`);
-        rootRef.current.style.setProperty("--terminal-keyboard-chrome-inset", `${terminalKeyboardChromeInset(metrics)}px`);
-
-        const fitDelayMs = terminalViewportFitDelayMs({
-          isTerminalInputFocused: document.activeElement === terminal.textarea,
-          metrics,
-        });
-        if (fitDelayMs > 0) {
-          clearDeferredFitAndResize();
-          deferredFitAndResizeTimer = window.setTimeout(() => {
-            deferredFitAndResizeTimer = null;
-            fitAndResize();
-          }, fitDelayMs);
-          return;
-        }
-      }
-      clearDeferredFitAndResize();
-      fitAndResize();
-    };
-
-    syncVisualViewport();
-    window.addEventListener("resize", syncVisualViewport);
-    window.visualViewport?.addEventListener("resize", syncVisualViewport);
-    window.visualViewport?.addEventListener("scroll", syncVisualViewport);
-    const resizeObserver = new ResizeObserver(fitAndResize);
-    resizeObserver.observe(containerRef.current);
-
-    const gestureOwner = createTerminalGestureOwner();
-    const touchScrollTarget = containerRef.current;
-    const scrollTerminalByPixels = (deltaY: number): void => {
-      const viewport = touchScrollTarget.querySelector(".xterm-viewport");
-      if (viewport instanceof HTMLElement) scrollTerminalViewportByPixels(viewport, deltaY);
-    };
-    const touchMomentum = createMomentumScrollGesture({
-      scrollBy: (deltaY) => {
-        scrollTerminalByPixels(deltaY);
-      },
-      viewportHeightPx: () => {
-        const viewport = touchScrollTarget.querySelector(".xterm-viewport");
-        return viewport instanceof HTMLElement ? viewport.clientHeight : touchScrollTarget.clientHeight;
-      },
-    });
-    const pointerMomentum = createMomentumScrollGesture({
-      scrollBy: (deltaY) => {
-        scrollTerminalByPixels(deltaY);
-      },
-      viewportHeightPx: () => {
-        const viewport = touchScrollTarget.querySelector(".xterm-viewport");
-        return viewport instanceof HTMLElement ? viewport.clientHeight : touchScrollTarget.clientHeight;
-      },
-    });
-    const cancelScrollForArrowGesture = () => {
-      touchMomentum.cancel();
-      pointerMomentum.cancel();
-    };
-    cancelScrollForArrowGestureRef.current = cancelScrollForArrowGesture;
-    const arrowGestureTarget = stageRef.current;
-    const captureArrowPointerMove = (event: PointerEvent) => {
-      if (!updateArrowGesture(event.pointerId, event.clientX, event.clientY)) return;
-      explicitTapStartRef.current = null;
-      cancelScrollForArrowGesture();
-      if (event.cancelable) event.preventDefault();
-      event.stopPropagation();
-      restoreArrowGestureScrollPosition();
-    };
-    const captureArrowTouchMove = (event: TouchEvent) => {
-      if (!arrowGestureRef.current) return;
-      explicitTapStartRef.current = null;
-      cancelScrollForArrowGesture();
-      const touch = event.touches.item(0);
-      if (touch) updateArrowGesture(null, touch.clientX, touch.clientY);
-      if (event.cancelable) event.preventDefault();
-      event.stopPropagation();
-      restoreArrowGestureScrollPosition();
-    };
-    arrowGestureTarget?.addEventListener("pointermove", captureArrowPointerMove, { capture: true, passive: false });
-    arrowGestureTarget?.addEventListener("touchmove", captureArrowTouchMove, { capture: true, passive: false });
-    let touchScrollStartY: number | null = null;
-    const beginTouchScroll = (event: TouchEvent) => {
-      const touchY = touchScrollY(event.touches);
-      if (touchY === null || !gestureOwner.beginTouch()) {
-        touchScrollStartY = null;
-        touchMomentum.cancel();
-        gestureOwner.endTouch();
-        return;
-      }
-      touchScrollStartY = touchY;
-      touchMomentum.begin(touchY);
-    };
-    const moveTouchScroll = (event: TouchEvent) => {
-      if (arrowGestureRef.current) {
-        explicitTapStartRef.current = null;
-        cancelScrollForArrowGesture();
-        const touch = event.touches.item(0);
-        if (touch) updateArrowGesture(null, touch.clientX, touch.clientY);
-        if (event.cancelable) event.preventDefault();
-        return;
-      }
-      const nextY = touchScrollY(event.touches);
-      if (nextY === null) return;
-      if (!gestureOwner.canMoveTouch()) {
-        if (touchScrollStartY === null || Math.abs(nextY - touchScrollStartY) < TOUCH_SCROLL_TAP_THRESHOLD_PX) return;
-        if (!gestureOwner.claimTouchMove()) return;
-        pointerMomentum.cancel();
-      }
-      if (!touchMomentum.move(nextY)) return;
-      explicitTapStartRef.current = null;
-      clearLongPress();
-      if (event.cancelable) {
-        event.preventDefault();
-      }
-    };
-    const resetTouchScroll = () => {
-      const hadArrowGesture = arrowGestureRef.current !== null;
-      if (hadArrowGesture) clearArrowGesture();
-      touchScrollStartY = null;
-      if (hadArrowGesture) touchMomentum.cancel();
-      else touchMomentum.end();
-      gestureOwner.endTouch();
-    };
-    const cancelTouchScroll = () => {
-      if (arrowGestureRef.current) clearArrowGesture();
-      touchScrollStartY = null;
-      touchMomentum.cancel();
-      gestureOwner.endTouch();
-    };
-    const beginPointerScroll = (event: PointerEvent) => {
-      if (event.button !== 0 || (event.pointerType !== "touch" && event.pointerType !== "pen")) return;
-      if (!gestureOwner.beginPointer(event.pointerId)) return;
-      touchMomentum.cancel();
-      pointerMomentum.begin(event.clientY);
-    };
-    const movePointerScroll = (event: PointerEvent) => {
-      if (arrowGestureRef.current?.pointerId === event.pointerId) {
-        explicitTapStartRef.current = null;
-        pointerMomentum.cancel();
-        if (event.cancelable) event.preventDefault();
-        return;
-      }
-      if (!gestureOwner.canMovePointer(event.pointerId)) return;
-      if (!pointerMomentum.move(event.clientY)) return;
-      gestureOwner.notePointerMoved(event.pointerId);
-      explicitTapStartRef.current = null;
-      clearLongPress();
-      if (event.cancelable) {
-        event.preventDefault();
-      }
-    };
-    const resetPointerScroll = (event: PointerEvent) => {
-      if (!gestureOwner.endPointer(event.pointerId)) return;
-      pointerMomentum.end();
-    };
-    const cancelPointerScroll = (event: PointerEvent) => {
-      if (!gestureOwner.endPointer(event.pointerId)) return;
-      pointerMomentum.cancel();
-    };
-    touchScrollTarget.addEventListener("touchstart", beginTouchScroll, { capture: true, passive: true });
-    touchScrollTarget.addEventListener("touchmove", moveTouchScroll, { capture: true, passive: false });
-    touchScrollTarget.addEventListener("touchend", resetTouchScroll, true);
-    touchScrollTarget.addEventListener("touchcancel", cancelTouchScroll, true);
-    touchScrollTarget.addEventListener("pointerdown", beginPointerScroll, { capture: true });
-    touchScrollTarget.addEventListener("pointermove", movePointerScroll, { capture: true });
-    touchScrollTarget.addEventListener("pointerup", resetPointerScroll, true);
-    touchScrollTarget.addEventListener("pointercancel", cancelPointerScroll, true);
-    const xtermViewport = touchScrollTarget.querySelector(".xterm-viewport");
-    const handleXtermViewportScroll = () => {
-      if (arrowGestureRef.current) {
-        restoreArrowGestureScrollPosition();
-        return;
-      }
-      updateTerminalSelectionHandles();
-    };
-    if (xtermViewport instanceof HTMLElement) {
-      xtermViewport.addEventListener("scroll", handleXtermViewportScroll);
-    }
-
-    const dataDisposable = terminal.onData((data) => {
-      if (isCtrlActiveRef.current) {
-        const controlKey = controlLetterKey(data);
-        updateCtrlActive(false);
-        if (controlKey) {
-          const sequence = terminalControlSequence(controlKey, true);
-          if (sequence) {
-            sendTerminalInput(sequence.data);
-            return;
-          }
-        }
-      } else {
-        updateCtrlActive(false);
-      }
-      sendTerminalInput(data);
-    });
-    const selectionDisposable = terminal.onSelectionChange(updateTerminalSelectionHandles);
-    const scrollDisposable = terminal.onScroll(updateTerminalSelectionHandles);
-
-    connectTimeoutTimer = window.setTimeout(() => {
-      if (!isCurrentSocket() || socket.readyState !== WebSocket.CONNECTING) return;
-      debug("socket.connect_timeout", {
-        attempt: autoReconnectAttemptsRef.current + 1,
-        timeoutMs: TERMINAL_CONNECT_TIMEOUT_MS,
-      });
-      handleConnectionFailure("Terminal connection timed out.");
-    }, TERMINAL_CONNECT_TIMEOUT_MS);
-
-    socket.addEventListener("open", () => {
-      if (!isCurrentSocket()) {
-        debug("socket.open.stale", { readyState: webSocketReadyStateName(socket.readyState) });
-        return;
-      }
-      clearConnectTimeout();
-      debug("socket.open", { readyState: webSocketReadyStateName(socket.readyState) });
-      fit();
-      setConnectionPhase("attaching");
-      socket.send(JSON.stringify({ type: "attach", sessionId, cols: terminal.cols, rows: terminal.rows }));
-      setConnectionPhase("loading-history");
-      debug("attach.sent", { cols: terminal.cols, pendingInputCount: pendingInputRef.current.length, rows: terminal.rows });
-      for (const data of pendingInputRef.current.splice(0)) {
-        debug("input.flushed", { bytes: data.length });
-        socket.send(JSON.stringify({ type: "input", data }));
-      }
-      setStatus(null);
-      // Touch browsers can focus this hidden textarea without opening the keyboard,
-      // leaving the terminal in a half-focused state that blocks first-drag scrolling.
-      if (navigator.maxTouchPoints === 0) {
-        terminal.focus();
-        focusTerminal();
-      }
-    });
-
-    socket.addEventListener("message", (event) => {
-      if (!isCurrentSocket()) {
-        debug("socket.message.stale", { bytes: socketDataBytes(event.data) });
-        return;
-      }
-      const message = parseTerminalMessage(event.data);
-      if (!message) {
-        debug("socket.message.invalid", { bytes: socketDataBytes(event.data) });
-        return;
-      }
-      debug("socket.message", {
-        bytes: terminalMessageBytes(message),
-        messageType: message.type,
-        receivedScrollback: receivedScrollbackRef.current,
-      });
-
-      if (message.type === "scrollback") {
-        autoReconnectAttemptsRef.current = 0;
-        setConnectionPhase(null);
-        receivedScrollbackRef.current = true;
-        writeQueue.replace(terminalHistoryReplay(message.data, terminal.rows));
-        debug("scrollback.applied", { bytes: message.data.length });
-        return;
-      }
-
-      if (message.type === "output") {
-        autoReconnectAttemptsRef.current = 0;
-        setConnectionPhase(null);
-        writeQueue.write(message.data);
-        return;
-      }
-
-      if (message.type === "error") {
-        setConnectionPhase(null);
-        setStatus(message.error);
-        writeQueue.write(`\r\n${message.error}\r\n`);
-        debug("terminal.error", { error: message.error });
-        return;
-      }
-
-      setConnectionPhase(null);
-      setStatus("Terminal exited.");
-      writeQueue.write("\r\nTerminal exited.\r\n");
-      debug("terminal.exit");
-    });
-
-    socket.addEventListener("close", (event) => {
-      debug(isCurrentSocket() ? "socket.close" : "socket.close.stale", {
-        code: event.code,
-        readyState: webSocketReadyStateName(socket.readyState),
-        reason: event.reason,
-        wasClean: event.wasClean,
-      });
-      handleConnectionFailure("Terminal disconnected.");
-    });
-
-    socket.addEventListener("error", () => {
-      debug(isCurrentSocket() ? "socket.error" : "socket.error.stale", {
-        readyState: webSocketReadyStateName(socket.readyState),
-      });
-      handleConnectionFailure("Unable to connect to terminal.");
-    });
-
-    function handleConnectionFailure(message: string) {
-      if (!isCurrentSocket()) return;
-      debug("connection.failure", { message });
-      clearConnectTimeout();
-      if (scheduleAutomaticReconnect(message)) return;
-      setConnectionPhase(null);
-      setStatus(message);
-      if (authProbeStarted) return;
-      authProbeStarted = true;
-      void verifyAuth(message);
-    }
-
-    function scheduleAutomaticReconnect(message: string): boolean {
-      if (reconnectScheduled) return true;
-      const retryDelayMs = TERMINAL_AUTO_RETRY_DELAYS_MS[autoReconnectAttemptsRef.current];
-      if (retryDelayMs === undefined) return false;
-
-      autoReconnectAttemptsRef.current += 1;
-      reconnectScheduled = true;
-      setStatus(null);
-      setConnectionPhase("connecting");
-      debug("connection.retry_scheduled", {
-        attempt: autoReconnectAttemptsRef.current + 1,
-        delayMs: retryDelayMs,
-        message,
-      });
-      if (socket.readyState === WebSocket.CONNECTING || socket.readyState === WebSocket.OPEN) {
-        socket.close();
-      }
-      reconnectTimer = window.setTimeout(() => {
-        if (!isCurrentSocket()) return;
-        debug("connection.retry_start", { attempt: autoReconnectAttemptsRef.current + 1 });
-        setRetryNonce((current) => current + 1);
-      }, retryDelayMs);
-      if (authProbeStarted) return true;
-      authProbeStarted = true;
-      void verifyAuth(message);
-      return true;
-    }
-
-    async function verifyAuth(message: string) {
-      try {
-        await api.workspaces();
-        debug("auth.probe.ok");
-      } catch (error) {
-        if (!isCurrentSocket()) return;
-        if (isUnauthorized(error)) {
-          debug("auth.probe.unauthorized");
-          onUnauthorized?.();
-          return;
-        }
-        debug("auth.probe.failed", { error: error instanceof Error ? error.message : "unknown auth probe error" });
-        if (!reconnectScheduled) setStatus(message);
-      }
-    }
-
-    function isCurrentSocket(): boolean {
-      return socketRef.current === socket && terminalRef.current === terminal;
-    }
-
-    return () => {
-      debug("effect.cleanup.start", {
-        pendingInputCount: pendingInputRef.current.length,
-        readyState: webSocketReadyStateName(socket.readyState),
-      });
-      window.removeEventListener("resize", syncVisualViewport);
-      window.visualViewport?.removeEventListener("resize", syncVisualViewport);
-      window.visualViewport?.removeEventListener("scroll", syncVisualViewport);
-      clearConnectTimeout();
-      clearReconnectTimer();
-      clearDeferredFitAndResize();
-      resizeObserver.disconnect();
-      touchMomentum.cancel();
-      pointerMomentum.cancel();
-      gestureOwner.cancel();
-      if (cancelScrollForArrowGestureRef.current === cancelScrollForArrowGesture) {
-        cancelScrollForArrowGestureRef.current = null;
-      }
-      arrowGestureTarget?.removeEventListener("pointermove", captureArrowPointerMove, true);
-      arrowGestureTarget?.removeEventListener("touchmove", captureArrowTouchMove, true);
-      touchScrollTarget.removeEventListener("touchstart", beginTouchScroll, true);
-      touchScrollTarget.removeEventListener("touchmove", moveTouchScroll, true);
-      touchScrollTarget.removeEventListener("touchend", resetTouchScroll, true);
-      touchScrollTarget.removeEventListener("touchcancel", cancelTouchScroll, true);
-      touchScrollTarget.removeEventListener("pointerdown", beginPointerScroll, true);
-      touchScrollTarget.removeEventListener("pointermove", movePointerScroll, true);
-      touchScrollTarget.removeEventListener("pointerup", resetPointerScroll, true);
-      touchScrollTarget.removeEventListener("pointercancel", cancelPointerScroll, true);
-      if (xtermViewport instanceof HTMLElement) {
-        xtermViewport.removeEventListener("scroll", handleXtermViewportScroll);
-      }
-      dataDisposable.dispose();
-      selectionDisposable.dispose();
-      scrollDisposable.dispose();
-      clearLongPress();
-      clearArrowGesture();
-      setSelectionHandles(null);
-      if (socketRef.current === socket) socketRef.current = null;
-      if (terminalRef.current === terminal) terminalRef.current = null;
-      if (fitAddonRef.current === fitAddon) fitAddonRef.current = null;
-      pendingInputRef.current = [];
-      receivedScrollbackRef.current = false;
-      setConnectionPhase(null);
-      socket.close();
-      writeQueue.dispose();
-      terminal.dispose();
-      debug("effect.cleanup.complete", { readyState: webSocketReadyStateName(socket.readyState) });
-      if (terminalDebugRef.current === debug) terminalDebugRef.current = null;
-    };
-  }, [clearArrowGesture, clearLongPress, focusTerminal, onUnauthorized, restoreArrowGestureScrollPosition, retryNonce, sendTerminalInput, sessionId, updateArrowGesture, updateCtrlActive, updateTerminalSelectionHandles]);
+  useTerminalSession({
+    actions: {
+      clearArrowGesture,
+      clearLongPress,
+      focusTerminal,
+      restoreArrowGestureScrollPosition,
+      sendTerminalInput,
+      updateArrowGesture,
+      updateCtrlActive,
+      updateTerminalSelectionHandles,
+    },
+    onUnauthorized,
+    refs: {
+      arrowGestureRef,
+      autoReconnectAttemptsRef,
+      autoReconnectSessionIdRef,
+      cancelScrollForArrowGestureRef,
+      containerRef,
+      explicitTapStartRef,
+      fitAddonRef,
+      isCtrlActiveRef,
+      pendingInputRef,
+      receivedScrollbackRef,
+      rootRef,
+      socketRef,
+      stageRef,
+      terminalDebugRef,
+      terminalRef,
+    },
+    retryNonce,
+    sessionId,
+    setConnectionPhase,
+    setRetryNonce,
+    setSelectionHandles,
+    setStatus,
+  });
 
   if (!sessionId) {
-    return (
-      <div className="tool-panel empty-tool">
-        <p className="empty-state">Select a session to attach a terminal.</p>
-        <button onClick={onOpenCreateSheet} type="button">Create new</button>
-      </div>
-    );
+    return <EmptyTerminalPane onCreate={onOpenCreateSheet} />;
   }
 
   const connectionStatus = status ? null : terminalConnectionStatusText(displayKind, connectionPhase);
 
   return (
     <div className="tool-panel terminal-pane" ref={rootRef}>
-      {status ? (
-        <div className="panel-error terminal-status" role="status">
-          <span>{status}</span>
-          <div className="terminal-status-actions">
-            <button onClick={retryConnection} type="button">Retry</button>
-            <button onClick={onOpenCreateSheet} type="button">Create new</button>
-          </div>
-        </div>
-      ) : null}
+      <TerminalStatus message={status} onCreate={onOpenCreateSheet} onRetry={retryConnection} />
       <div
         className="terminal-stage"
         ref={stageRef}
@@ -1215,168 +698,32 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
         onPointerUp={handleTerminalPointerEnd}
       >
         <div className="terminal-host" ref={containerRef} />
-        {connectionStatus ? (
-          <div className="terminal-connection-status" role="status" aria-live="polite">
-            <span className="terminal-connection-dot" aria-hidden="true" />
-            <span>{connectionStatus}</span>
-          </div>
-        ) : null}
-        {selectionHandles ? (
-          <div className="terminal-selection-handles" aria-hidden={false}>
-            <button
-              aria-label="Expand terminal selection start"
-              aria-orientation="vertical"
-              aria-valuemax={terminalRef.current?.buffer.active.length ?? 0}
-              aria-valuemin={0}
-              aria-valuenow={0}
-              className="terminal-selection-handle terminal-selection-handle-start"
-              onPointerDown={(event) => beginSelectionHandleDrag(event, "start")}
-              role="slider"
-              style={{ left: selectionHandles.start.left, top: selectionHandles.start.top }}
-              title="Expand selection start"
-              type="button"
-            />
-            <button
-              aria-label="Expand terminal selection end"
-              aria-orientation="vertical"
-              aria-valuemax={terminalRef.current?.buffer.active.length ?? 0}
-              aria-valuemin={0}
-              aria-valuenow={0}
-              className="terminal-selection-handle terminal-selection-handle-end"
-              onPointerDown={(event) => beginSelectionHandleDrag(event, "end")}
-              role="slider"
-              style={{ left: selectionHandles.end.left, top: selectionHandles.end.top }}
-              title="Expand selection end"
-              type="button"
-            />
-          </div>
-        ) : null}
-        {arrowOverlay ? (
-          <div
-            aria-label="Arrow key gesture control"
-            className="terminal-arrow-gesture"
-            data-direction={arrowOverlay.direction ?? "inactive"}
-            role="status"
-            style={{ left: arrowOverlay.originX, top: arrowOverlay.originY }}
-          >
-            <span aria-hidden="true" className="terminal-arrow-origin" />
-            {(["left", "up", "down", "right"] as const).map((direction) => (
-              <span
-                aria-hidden="true"
-                className={`terminal-arrow terminal-arrow-${direction}${arrowOverlay.direction === direction ? " active" : ""}`}
-                key={direction}
-              >
-                {direction === "left" ? "←" : direction === "up" ? "↑" : direction === "down" ? "↓" : "→"}
-              </span>
-            ))}
-          </div>
-        ) : null}
+        <TerminalConnectionStatus message={connectionStatus} />
+        <TerminalSelectionHandles
+          bufferLength={terminalRef.current?.buffer.active.length ?? 0}
+          handles={selectionHandles}
+          onBeginDrag={beginSelectionHandleDrag}
+        />
+        <TerminalArrowGesture overlay={arrowOverlay} />
       </div>
-      {actionMenu ? (
-        <div
-          aria-label="Terminal actions"
-          className="terminal-action-menu"
-          ref={actionMenuRef}
-          role="menu"
-          style={{ left: actionMenu.x, top: actionMenu.y }}
-        >
-          <button onClick={selectTerminalWordFromMenu} role="menuitem" type="button">Select</button>
-          <button onClick={() => void copyTerminalSelection()} role="menuitem" type="button">Copy</button>
-          <button onClick={() => void pasteFromClipboard()} role="menuitem" type="button">Paste</button>
-          <button onClick={selectAllTerminalText} role="menuitem" type="button">Select all</button>
-          {isPasteCaptureVisible ? (
-            <textarea
-              aria-label="Paste terminal input"
-              autoCapitalize="none"
-              autoComplete="off"
-              autoCorrect="off"
-              className="terminal-paste-capture"
-              onInput={handlePasteCaptureInput}
-              onPaste={handlePasteCapturePaste}
-              ref={pasteCaptureRef}
-              rows={1}
-              spellCheck={false}
-            />
-          ) : null}
-        </div>
-      ) : null}
-      <div className="terminal-keybar" role="toolbar" aria-label="Terminal special keys">
-        {terminalKeyLabels.map((key) => (
-          <button
-            aria-label={key.ariaLabel}
-            aria-pressed={key.key === "ctrl" ? isCtrlActive : undefined}
-            className={key.key === "ctrl" && isCtrlActive ? "active" : undefined}
-            key={key.key}
-            onClick={() => handleToolbarClick(key.key)}
-            onPointerDown={preserveTerminalFocus}
-            onTouchEnd={(event) => handleToolbarTouchEnd(event, key.key)}
-            onTouchStart={preserveTerminalFocus}
-            type="button"
-          >
-            {key.label}
-          </button>
-        ))}
-      </div>
+      <TerminalActionMenu
+        isPasteCaptureVisible={isPasteCaptureVisible}
+        menu={actionMenu}
+        menuRef={actionMenuRef}
+        onCopy={() => void copyTerminalSelection()}
+        onPaste={() => void pasteFromClipboard()}
+        onPasteCaptureInput={handlePasteCaptureInput}
+        onPasteCapturePaste={handlePasteCapturePaste}
+        onSelect={selectTerminalWordFromMenu}
+        onSelectAll={selectAllTerminalText}
+        pasteCaptureRef={pasteCaptureRef}
+      />
+      <TerminalKeybar
+        isCtrlActive={isCtrlActive}
+        onClick={handleToolbarClick}
+        onPreserveFocus={preserveTerminalFocus}
+        onTouchEnd={handleToolbarTouchEnd}
+      />
     </div>
   );
-}
-
-function terminalConnectionStatusText(displayKind: "terminal" | "agent", phase: ConnectionPhase): string | null {
-  if (!phase) return null;
-  const label = displayKind === "agent" ? "agent" : "terminal";
-  if (phase === "connecting") return `Connecting to ${label}...`;
-  if (phase === "attaching") return `Attaching ${label}...`;
-  return `Loading ${label} history...`;
-}
-
-function controlLetterKey(data: string): "c" | "d" | "l" | null {
-  if (data.length !== 1) return null;
-  const key = data.toLowerCase();
-  return key === "c" || key === "d" || key === "l" ? key : null;
-}
-
-function touchScrollY(touches: TouchList): number | null {
-  if (touches.length !== 1 && touches.length !== 2) return null;
-  let total = 0;
-  for (let index = 0; index < touches.length; index += 1) {
-    total += touches[index]?.clientY ?? 0;
-  }
-  return total / touches.length;
-}
-
-function parseTerminalMessage(data: unknown): TerminalSocketMessage | null {
-  if (typeof data !== "string") return null;
-  try {
-    const parsed = JSON.parse(data) as Partial<TerminalSocketMessage>;
-    if ((parsed.type === "scrollback" || parsed.type === "output") && typeof parsed.data === "string") {
-      return parsed as TerminalSocketMessage;
-    }
-    if (parsed.type === "error" && typeof parsed.error === "string") {
-      return parsed as TerminalSocketMessage;
-    }
-    if (parsed.type === "exit") {
-      return { type: "exit" };
-    }
-  } catch {
-    return null;
-  }
-  return null;
-}
-
-function webSocketReadyStateName(readyState: number | undefined): string {
-  if (readyState === 0) return "connecting";
-  if (readyState === 1) return "open";
-  if (readyState === 2) return "closing";
-  if (readyState === 3) return "closed";
-  return "unknown";
-}
-
-function socketDataBytes(data: unknown): number {
-  return typeof data === "string" ? data.length : 0;
-}
-
-function terminalMessageBytes(message: TerminalSocketMessage): number {
-  if ("data" in message) return message.data.length;
-  if ("error" in message) return message.error.length;
-  return 0;
 }

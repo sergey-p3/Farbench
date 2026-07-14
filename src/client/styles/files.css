@@ -1,0 +1,236 @@
+.file-panel,
+.git-panel {
+  display: grid;
+  gap: 0;
+  grid-template-columns: minmax(190px, 260px) minmax(0, 1fr);
+  height: 100%;
+  min-height: 0;
+}
+
+.file-list,
+.git-change-list,
+.editor-panel,
+.diff-panel {
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.file-list,
+.git-change-list {
+  border-right: 1px solid #d8dee6;
+  display: grid;
+}
+
+.file-list {
+  grid-template-rows: auto auto auto minmax(0, 1fr) auto;
+}
+
+.git-change-list {
+  grid-template-rows: auto auto minmax(0, 1fr) auto;
+}
+
+.editor-panel,
+.diff-panel {
+  display: grid;
+  grid-template-rows: auto auto minmax(0, 1fr);
+}
+
+.panel-toolbar {
+  align-items: center;
+  border-bottom: 1px solid #e0e6eb;
+  display: flex;
+  gap: 8px;
+  justify-content: space-between;
+  min-height: 45px;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.panel-toolbar strong {
+  color: #2f3d4c;
+  min-width: 0;
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.panel-toolbar button,
+.preview-controls button,
+.preview-controls a {
+  background: #24435f;
+  border: 1px solid #24435f;
+  border-radius: 6px;
+  color: #ffffff;
+  min-height: 34px;
+  padding: 7px 12px;
+  text-decoration: none;
+  white-space: nowrap;
+}
+
+.file-nav {
+  border-bottom: 1px solid #e0e6eb;
+  display: grid;
+  gap: 6px;
+  grid-row: 2;
+  grid-template-columns: repeat(2, minmax(0, 1fr));
+  padding: 8px;
+}
+
+.file-nav button {
+  background: #ffffff;
+  color: #24435f;
+}
+
+.file-buttons {
+  align-content: start;
+  display: grid;
+  gap: 6px;
+  min-height: 0;
+  overflow: auto;
+  padding: 8px;
+}
+
+.file-list .loading-state {
+  grid-row: 3;
+}
+
+.file-list .file-buttons {
+  grid-row: 4;
+}
+
+.file-list > .empty-state {
+  grid-row: 5;
+}
+
+.git-change-list .loading-state {
+  grid-row: 2;
+}
+
+.git-change-list .file-buttons {
+  grid-row: 3;
+}
+
+.git-change-list > .empty-state {
+  grid-row: 4;
+}
+
+.file-button {
+  background: #f8fafb;
+  border: 1px solid #e0e6eb;
+  border-radius: 6px;
+  color: #263442;
+  display: grid;
+  gap: 3px;
+  min-width: 0;
+  padding: 8px;
+  text-align: left;
+  width: 100%;
+}
+
+.file-button.selected {
+  background: #edf6f8;
+  border-color: #5a9aaa;
+}
+
+.file-button span,
+.file-button small {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.file-button span {
+  font-weight: 700;
+}
+
+.file-button small {
+  color: #687586;
+}
+
+.editor-host,
+.diff-editor-host,
+.git-diff-viewer,
+.preview-frame-wrap {
+  height: 100%;
+  min-height: 0;
+  min-width: 0;
+  overflow: hidden;
+}
+
+.editor-host,
+.editor-host .monaco-editor,
+.diff-editor-host,
+.diff-editor-host .monaco-editor,
+.editor-host .overflow-guard,
+.diff-editor-host .overflow-guard,
+.editor-host .monaco-scrollable-element,
+.diff-editor-host .monaco-scrollable-element,
+.diff-editor-host textarea,
+.editor-host textarea {
+  touch-action: none;
+}
+
+.editor-host,
+.git-diff-viewer,
+.diff-output,
+.preview-frame-wrap {
+  grid-row: 3;
+}
+
+.git-diff-viewer {
+  display: grid;
+  grid-template-rows: auto minmax(0, 1fr);
+}
+
+.git-diff-viewer > .empty-state,
+.git-diff-viewer > .loading-state,
+.git-diff-viewer > .diff-output {
+  grid-row: 1 / -1;
+}
+
+.diff-controls {
+  align-items: center;
+  background: #f8fafb;
+  border-bottom: 1px solid #d8dee6;
+  display: flex;
+  flex-wrap: wrap;
+  gap: 8px;
+  justify-content: space-between;
+  min-width: 0;
+  padding: 8px 10px;
+}
+
+.segmented-control {
+  background: #e7ecef;
+  border: 1px solid #c8d1dc;
+  border-radius: 6px;
+  display: inline-flex;
+  flex: 0 1 auto;
+  min-width: 0;
+  overflow: hidden;
+  padding: 2px;
+}
+
+.segmented-control button,
+.diff-controls .secondary-button {
+  border-radius: 4px;
+  min-height: 30px;
+  padding: 5px 9px;
+  white-space: nowrap;
+}
+
+.segmented-control button {
+  background: transparent;
+  border: 0;
+  color: #3d4b5c;
+}
+
+.segmented-control button[aria-pressed="true"] {
+  background: #ffffff;
+  color: #1f2933;
+}
+
+.diff-editor-host {
+  grid-row: 2;
+}
