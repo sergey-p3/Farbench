@@ -31,6 +31,27 @@ describe("TmuxManager", () => {
     );
   });
 
+  it.each([
+    ["read-only", "on-request"],
+    ["workspace-write", "on-request"],
+    ["danger-full-access", "never"],
+  ] as const)("starts Codex with %s permissions", async (permissionLevel, approvalPolicy) => {
+    const { TmuxManager } = await import("../../src/server/terminal/TmuxManager.js");
+    const tmux = new TmuxManager();
+
+    await tmux.create("/workspace", "codex", permissionLevel);
+
+    expect(spawnMock).toHaveBeenCalledWith(
+      "tmux",
+      expect.arrayContaining([
+        expect.stringContaining(
+          `'codex' '--sandbox' '${permissionLevel}' '--ask-for-approval' '${approvalPolicy}'`,
+        ),
+      ]),
+      expect.any(Object),
+    );
+  });
+
   it("applies and captures the shared terminal history line count on reconnect", async () => {
     const { TmuxManager } = await import("../../src/server/terminal/TmuxManager.js");
     const tmux = new TmuxManager();

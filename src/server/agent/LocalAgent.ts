@@ -636,7 +636,7 @@ export class LocalAgent implements AgentGateway {
   }
 
   async createTerminalSession(input: CreateSessionInput): Promise<{ tmuxName: string }> {
-    return { tmuxName: await this.tmux.create(input.rootPath, input.type) };
+    return { tmuxName: await this.tmux.create(input.rootPath, input.type, input.codexPermissionLevel) };
   }
 
   async captureScrollback(tmuxName: string): Promise<string> {

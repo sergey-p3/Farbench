@@ -1,5 +1,5 @@
 import { useEffect, useMemo, useRef, useState } from "react";
-import type { BrowserLayout, SessionType, Workspace, WorkspaceItem } from "../../shared/types.js";
+import type { BrowserLayout, CodexPermissionLevel, SessionType, Workspace, WorkspaceItem } from "../../shared/types.js";
 import { api, isUnauthorized } from "../api.js";
 import {
   MAIN_PANE_ID,
@@ -99,12 +99,12 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
     setLayout((current) => reconcileSessions(current, workspaceId, sessions));
   }
 
-  async function createSession(type: SessionType) {
+  async function createSession(type: SessionType, codexPermissionLevel?: CodexPermissionLevel) {
     if (!layout.selectedWorkspaceId) return;
     const workspaceId = layout.selectedWorkspaceId;
     const requestId = nextRequestId();
     try {
-      const session = await api.createSession(workspaceId, type, `${type} session`);
+      const session = await api.createSession(workspaceId, type, `${type} session`, codexPermissionLevel);
       if (!isCurrentWorkspaceRequest(workspaceId, requestId)) return;
       selectedWorkspaceIdRef.current = workspaceId;
       const sessions = await api.sessions(workspaceId);
