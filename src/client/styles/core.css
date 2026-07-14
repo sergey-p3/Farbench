@@ -1,0 +1,133 @@
+:root {
+  --app-viewport-height: 100vh;
+  color: #1f2933;
+  background: #eef1f4;
+  font-family:
+    Inter, ui-sans-serif, system-ui, -apple-system, BlinkMacSystemFont, "Segoe UI", sans-serif;
+  font-synthesis: none;
+  text-rendering: optimizeLegibility;
+}
+
+html {
+  height: var(--app-viewport-height);
+  overflow: hidden;
+}
+
+* {
+  box-sizing: border-box;
+}
+
+body {
+  height: var(--app-viewport-height);
+  inset: 0;
+  margin: 0;
+  min-width: 320px;
+  overflow: hidden;
+  position: fixed;
+  width: 100%;
+}
+
+#root {
+  height: var(--app-viewport-height);
+  overflow: hidden;
+}
+
+button,
+input {
+  font: inherit;
+}
+
+button {
+  cursor: pointer;
+}
+
+button:disabled {
+  cursor: not-allowed;
+  opacity: 0.58;
+}
+
+.login-screen {
+  align-items: center;
+  display: flex;
+  min-height: var(--app-viewport-height);
+  justify-content: center;
+  overflow: auto;
+  padding: 24px;
+}
+
+.login-panel {
+  background: #ffffff;
+  border: 1px solid #d8dee6;
+  border-radius: 8px;
+  box-shadow: 0 18px 48px rgb(31 41 51 / 12%);
+  display: grid;
+  gap: 16px;
+  max-width: 360px;
+  padding: 24px;
+  width: 100%;
+}
+
+.login-panel h1 {
+  margin: 0;
+}
+
+.login-panel h1 {
+  font-size: 1.35rem;
+}
+
+.field {
+  display: grid;
+  gap: 6px;
+}
+
+.field span,
+.eyebrow {
+  color: #687586;
+  font-size: 0.76rem;
+  font-weight: 700;
+  letter-spacing: 0;
+  text-transform: uppercase;
+}
+
+.field input {
+  border: 1px solid #bbc5d1;
+  border-radius: 6px;
+  min-height: 38px;
+  padding: 8px 10px;
+}
+
+.login-panel button {
+  background: #24435f;
+  border: 1px solid #24435f;
+  border-radius: 6px;
+  color: #ffffff;
+  min-height: 34px;
+  padding: 7px 12px;
+}
+
+.form-error,
+.shell-error,
+.dashboard-error {
+  background: #fff1f0;
+  border: 1px solid #f0b8b3;
+  border-radius: 6px;
+  color: #9d2b22;
+  margin: 0;
+  padding: 8px 10px;
+}
+
+.shell-error button,
+.panel-error button {
+  background: #24435f;
+  border: 1px solid #24435f;
+  border-radius: 6px;
+  color: #ffffff;
+  min-height: 30px;
+  padding: 5px 10px;
+}
+
+.app-shell {
+  height: var(--app-viewport-height);
+  min-height: 0;
+  overflow: hidden;
+}

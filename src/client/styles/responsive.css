@@ -1,0 +1,107 @@
+@media (max-width: 760px) {
+  .session-chip {
+    max-width: 100%;
+  }
+
+  .terminal-pane {
+    max-height: calc(var(--terminal-visual-height) - 58px);
+  }
+
+  .tab-shortcut-rail {
+    max-height: calc(var(--app-viewport-height) - 70px);
+    right: 6px;
+    top: 50px;
+    width: 40px;
+  }
+
+  .tab-shortcut-button {
+    height: 28px;
+    min-height: 28px;
+    min-width: 28px;
+    width: 28px;
+  }
+
+  .file-panel,
+  .git-panel {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 32vh) minmax(0, 1fr);
+  }
+
+  .file-list,
+  .git-change-list {
+    border-bottom: 1px solid #d8dee6;
+    border-right: 0;
+  }
+
+  .editor-host,
+  .diff-editor-host,
+  .git-diff-viewer,
+  .diff-output {
+    height: 100%;
+    min-height: 0;
+  }
+
+  .git-files-view {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .git-files-view.git-file-selected {
+    grid-template-columns: 1fr;
+    grid-template-rows: minmax(0, 1fr);
+  }
+
+  .git-file-selected .git-change-list {
+    display: none;
+  }
+
+  .git-back-button {
+    align-items: center;
+    display: inline-flex;
+    flex: 0 0 auto;
+    font-size: 0.76rem;
+    min-height: 30px;
+    padding: 5px 8px;
+  }
+
+  .git-file-selected .diff-panel {
+    grid-template-rows: auto auto minmax(0, 1fr);
+  }
+
+  .git-view-tabs {
+    padding-left: 5px;
+    padding-right: 5px;
+  }
+
+  .git-view-tabs > button {
+    padding-left: 9px;
+    padding-right: 9px;
+  }
+
+  .git-current-branch {
+    display: none;
+  }
+}
+
+@media (min-width: 900px) {
+  .item-shell {
+    padding: 12px;
+  }
+
+  .focused-shell {
+    border: 1px solid #d8dee6;
+    border-radius: 8px;
+    height: calc(var(--app-viewport-height) - 24px);
+  }
+
+  .item-drawer,
+  .create-sheet {
+    border-radius: 8px;
+    bottom: 18px;
+    left: auto;
+    max-width: 420px;
+    right: 18px;
+    width: min(420px, calc(100vw - 36px));
+  }
+
+}

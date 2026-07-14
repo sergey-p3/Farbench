@@ -74,7 +74,7 @@ test("owner uses mobile focused item shell and restores last active item", async
 
     await page.getByRole("button", { name: "Create item" }).click();
     await expect(page.getByRole("button", { name: "Files" })).toBeVisible();
-    await page.getByRole("button", { name: "Files" }).click();
+    await page.getByRole("button", { name: "Files", exact: true }).click();
     await openTopMenu(page);
     await expect(page.getByRole("heading", { level: 1, name: "Files" })).toBeVisible();
     await closeTopMenu(page);
@@ -130,7 +130,7 @@ test("owner uses mobile focused item shell and restores last active item", async
 
     await openTopMenu(page);
     await page.getByRole("button", { name: "Create item" }).click();
-    await page.getByRole("button", { name: "Files" }).click();
+    await page.getByRole("button", { name: "Files", exact: true }).click();
     await expect(page.getByRole("heading", { level: 3, name: "Files is already open" })).toBeVisible();
     await page.getByRole("button", { name: "Focus existing" }).click();
     await openTopMenu(page);
@@ -142,7 +142,7 @@ test("owner uses mobile focused item shell and restores last active item", async
     await expect(page.getByRole("heading", { level: 1, name: "Git diff" })).toBeVisible();
     await closeTopMenu(page);
     await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
-    await page.getByRole("button", { name: /app\.txt/ }).click();
+    await page.getByTitle("app.txt", { exact: true }).click();
     await expect(page.getByRole("group", { name: "Diff view mode" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Copy location" })).toBeVisible();
     await expect(page.getByLabel("Git diff").getByText("original line")).toBeVisible();

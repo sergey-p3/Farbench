@@ -1,16 +1,18 @@
 import type * as pty from "node-pty";
 import type { WebSocketServer } from "ws";
-import { TERMINAL_HISTORY_CACHE_BYTES } from "../../shared/terminalHistory.js";
-import type { SessionType } from "../../shared/types.js";
 import type { MetadataDb } from "../db.js";
 import { createTerminalDebugLogger, type TerminalDebugLogger, type TerminalDebugOptions } from "../terminalDebug.js";
 import { TmuxManager } from "../terminal/TmuxManager.js";
-
-type ClientMessage =
-  | { type: "attach"; sessionId: string; cols: number; rows: number }
-  | { type: "input"; data: string }
-  | { type: "resize"; cols: number; rows: number }
-  | { type: "scroll"; direction: "up" | "down" };
+import {
+  capTerminalReplay,
+  parseTerminalClientMessage,
+  stripTerminalReplay,
+  TerminalOutputSanitizer,
+  terminalMessageFields,
+  terminalResponseBytes,
+  terminalResponseType,
+  webSocketReadyStateName,
+} from "./terminalProtocol.js";
 
 interface TerminalSocketOptions {
   debug?: TerminalDebugOptions;
@@ -34,15 +36,15 @@ export function registerTerminalSocket(
 
     debug.log("socket.connection", {
       connectedClients: server.clients.size,
-      readyState: wsReadyStateName(socket.readyState),
+      readyState: webSocketReadyStateName(socket.readyState),
     });
 
     const send = (message: Record<string, unknown>): void => {
       if (socket.readyState === socket.OPEN) {
         debug.log("send", {
-          bytes: responseBytes(message),
-          messageType: messageType(message),
-          readyState: wsReadyStateName(socket.readyState),
+          bytes: terminalResponseBytes(message),
+          messageType: terminalResponseType(message),
+          readyState: webSocketReadyStateName(socket.readyState),
           sessionId: attachedSessionId,
           tmuxName: attachedTmuxName,
         });
@@ -50,8 +52,8 @@ export function registerTerminalSocket(
         return;
       }
       debug.log("send.skipped", {
-        messageType: messageType(message),
-        readyState: wsReadyStateName(socket.readyState),
+        messageType: terminalResponseType(message),
+        readyState: webSocketReadyStateName(socket.readyState),
         sessionId: attachedSessionId,
         tmuxName: attachedTmuxName,
       });
@@ -87,19 +89,19 @@ export function registerTerminalSocket(
     socket.on("close", (code, reason) => {
       debug.log("socket.close", {
         code,
-        readyState: wsReadyStateName(socket.readyState),
+        readyState: webSocketReadyStateName(socket.readyState),
         reason: reason.toString("utf8"),
       });
       detach("socket.close");
     });
 
     socket.on("error", (error) => {
-      debug.log("socket.error", { error: error.message, readyState: wsReadyStateName(socket.readyState) });
+      debug.log("socket.error", { error: error.message, readyState: webSocketReadyStateName(socket.readyState) });
     });
 
     async function handleMessage(raw: string): Promise<void> {
-      const message = parseMessage(raw);
-      debug.log("message", messageFields(message, raw.length));
+      const message = parseTerminalClientMessage(raw);
+      debug.log("message", terminalMessageFields(message, raw.length));
 
       if (message.type === "attach") {
         const session = db.getSession(message.sessionId);
@@ -268,74 +270,6 @@ export function registerTerminalSocket(
   });
 }
 
-class TerminalOutputSanitizer {
-  private carry = "";
-
-  constructor(private readonly sessionType: SessionType) {}
-
-  clean(data: string): string {
-    if (!shouldStripAltScreen(this.sessionType)) return data;
-
-    data = this.carry + data;
-    this.carry = "";
-    const splitTail = data.match(/\x1b(?:\[\??[0-9]{0,4})?$/);
-    if (splitTail) {
-      this.carry = splitTail[0];
-      data = data.slice(0, -splitTail[0].length);
-    }
-    return stripTerminalControlSequences(data);
-  }
-}
-
-function stripTerminalReplay(sessionType: SessionType, data: string): string {
-  return shouldStripAltScreen(sessionType) ? stripTerminalControlSequences(data) : data;
-}
-
-function capTerminalReplay(data: string): string {
-  return data.length > TERMINAL_HISTORY_CACHE_BYTES ? data.slice(-TERMINAL_HISTORY_CACHE_BYTES) : data;
-}
-
-function shouldStripAltScreen(sessionType: SessionType): boolean {
-  return sessionType === "bash" || sessionType === "codex" || sessionType === "claude";
-}
-
-function stripTerminalControlSequences(data: string): string {
-  return data
-    .replace(/\x1b\[\?(?:47|1047|1049)[hl]/g, "")
-    .replace(/\x1b\[3J/g, "")
-    .replace(/\x1b\[\?(?:1000|1001|1002|1003|1005|1006|1007)[hl]/g, "");
-}
-
-function parseMessage(raw: string): ClientMessage {
-  const parsed = JSON.parse(raw) as Partial<ClientMessage>;
-  if (parsed.type === "attach" && typeof parsed.sessionId === "string") {
-    return {
-      type: "attach",
-      sessionId: parsed.sessionId,
-      cols: numberOrDefault(parsed.cols, 80),
-      rows: numberOrDefault(parsed.rows, 24),
-    };
-  }
-  if (parsed.type === "input" && typeof parsed.data === "string") {
-    return { type: "input", data: parsed.data };
-  }
-  if (parsed.type === "resize") {
-    return {
-      type: "resize",
-      cols: numberOrDefault(parsed.cols, 80),
-      rows: numberOrDefault(parsed.rows, 24),
-    };
-  }
-  if (parsed.type === "scroll" && (parsed.direction === "up" || parsed.direction === "down")) {
-    return { type: "scroll", direction: parsed.direction };
-  }
-  throw new Error("invalid terminal message");
-}
-
-function numberOrDefault(value: unknown, fallback: number): number {
-  return typeof value === "number" && Number.isFinite(value) && value > 0 ? value : fallback;
-}
-
 async function debugTmuxClientCount(
   tmux: TmuxManager,
   tmuxName: string,
@@ -353,41 +287,4 @@ async function debugTmuxClientCount(
     });
     return null;
   }
-}
-
-function messageFields(message: ClientMessage, rawBytes: number): Record<string, string | number> {
-  if (message.type === "attach") {
-    return {
-      bytes: rawBytes,
-      cols: message.cols,
-      messageType: message.type,
-      rows: message.rows,
-      sessionId: message.sessionId,
-    };
-  }
-  if (message.type === "input") {
-    return { bytes: message.data.length, messageType: message.type };
-  }
-  if (message.type === "resize") {
-    return { bytes: rawBytes, cols: message.cols, messageType: message.type, rows: message.rows };
-  }
-  return { bytes: rawBytes, direction: message.direction, messageType: message.type };
-}
-
-function messageType(message: Record<string, unknown>): string {
-  return typeof message.type === "string" ? message.type : "unknown";
-}
-
-function responseBytes(message: Record<string, unknown>): number {
-  if (typeof message.data === "string") return message.data.length;
-  if (typeof message.error === "string") return message.error.length;
-  return 0;
-}
-
-function wsReadyStateName(readyState: number): string {
-  if (readyState === 0) return "connecting";
-  if (readyState === 1) return "open";
-  if (readyState === 2) return "closing";
-  if (readyState === 3) return "closed";
-  return "unknown";
 }
