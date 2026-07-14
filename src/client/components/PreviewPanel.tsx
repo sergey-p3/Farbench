@@ -1,6 +1,7 @@
 import { useEffect, useRef, useState } from "react";
 import type { PortPreview, Workspace } from "../../shared/types.js";
-import { api, isUnauthorized } from "../api.js";
+import { api } from "../api.js";
+import { apiErrorMessage } from "./apiError.js";
 
 interface PreviewPanelProps {
   workspace: Workspace | null;
@@ -40,7 +41,7 @@ export function PreviewPanel({ workspace, initialPort = 3000, initialPath = "/",
       setPreview(nextPreview);
     } catch (previewError) {
       if (!isCurrentPreviewRequest(workspaceId, requestId)) return;
-      const message = panelError(previewError, "Unable to create preview", onUnauthorized);
+      const message = apiErrorMessage(previewError, "Unable to create preview", onUnauthorized);
       if (message) setError(message);
     } finally {
       if (isCurrentPreviewRequest(workspaceId, requestId)) setIsLoading(false);
@@ -106,12 +107,4 @@ function previewUrl(basePath: string, itemPath: string): string {
   if (!trimmed || trimmed === "/") return `${basePath}/`;
   const normalized = trimmed.startsWith("/") ? trimmed : `/${trimmed}`;
   return `${basePath}${normalized}`;
-}
-
-function panelError(error: unknown, fallback: string, onUnauthorized?: () => void): string | null {
-  if (isUnauthorized(error)) {
-    onUnauthorized?.();
-    return onUnauthorized ? null : "Session expired. Sign in again.";
-  }
-  return error instanceof Error ? error.message : fallback;
 }
