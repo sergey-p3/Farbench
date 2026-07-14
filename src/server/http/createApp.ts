@@ -12,7 +12,7 @@ import { createAuth } from "../auth.js";
 import { LocalAgent } from "../agent/LocalAgent.js";
 import type { AgentGateway } from "../agent/AgentGateway.js";
 import { registerTerminalSocket } from "../ws/terminalSocket.js";
-import type { PortPreview, SessionType, Workspace } from "../../shared/types.js";
+import type { CodexPermissionLevel, PortPreview, SessionType, Workspace } from "../../shared/types.js";
 
 interface CreateAppInput {
   config: ServerConfig;
@@ -47,6 +47,12 @@ function asyncHandler(handler: AsyncHandler) {
 function sessionType(value: unknown): SessionType {
   if (value === "bash" || value === "codex" || value === "claude") return value;
   return "bash";
+}
+
+function codexPermissionLevel(value: unknown): CodexPermissionLevel {
+  if (value === undefined) return "workspace-write";
+  if (value === "read-only" || value === "workspace-write" || value === "danger-full-access") return value;
+  throw httpError(400, "Invalid Codex permission level");
 }
 
 function requestPort(value: unknown): number {
@@ -165,11 +171,13 @@ export async function createApp({ config, db, agent = new LocalAgent(), devClien
       const workspace = getWorkspace(req.params.workspaceId);
       const type = sessionType(req.body?.type);
       const name = typeof req.body?.name === "string" && req.body.name.trim() ? req.body.name.trim() : type;
+      const permissionLevel = type === "codex" ? codexPermissionLevel(req.body?.codexPermissionLevel) : undefined;
       const terminal = await agent.createTerminalSession({
         workspaceId: workspace.id,
         rootPath: workspace.rootPath,
         name,
         type,
+        codexPermissionLevel: permissionLevel,
       });
       const session = db.createSession({
         workspaceId: workspace.id,
@@ -178,7 +186,12 @@ export async function createApp({ config, db, agent = new LocalAgent(), devClien
         tmuxName: terminal.tmuxName,
       });
       db.updateSessionStatus(session.id, "running");
-      recordAudit("session.create", { sessionId: session.id, workspaceId: workspace.id, type });
+      recordAudit("session.create", {
+        sessionId: session.id,
+        workspaceId: workspace.id,
+        type,
+        ...(permissionLevel ? { codexPermissionLevel: permissionLevel } : {}),
+      });
       res.json({ session: db.getSession(session.id) ?? session });
     }),
   );

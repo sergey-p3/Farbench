@@ -1,7 +1,7 @@
 import { spawn, spawnSync } from "node:child_process";
 import { nanoid } from "nanoid";
 import * as pty from "node-pty";
-import type { SessionType } from "../../shared/types.js";
+import type { CodexPermissionLevel, SessionType } from "../../shared/types.js";
 import { TERMINAL_HISTORY_LINES } from "../../shared/terminalHistory.js";
 
 export class TmuxManager {
@@ -12,16 +12,19 @@ export class TmuxManager {
     }
   }
 
-  commandFor(type: SessionType): string {
-    if (type === "codex") return "codex";
-    if (type === "claude") return "claude";
-    return process.env.SHELL ?? "bash";
+  commandFor(type: SessionType, codexPermissionLevel: CodexPermissionLevel = "workspace-write"): string[] {
+    if (type === "codex") {
+      const approvalPolicy = codexPermissionLevel === "danger-full-access" ? "never" : "on-request";
+      return ["codex", "--sandbox", codexPermissionLevel, "--ask-for-approval", approvalPolicy];
+    }
+    if (type === "claude") return ["claude"];
+    return [process.env.SHELL ?? "bash"];
   }
 
-  async create(rootPath: string, type: SessionType): Promise<string> {
+  async create(rootPath: string, type: SessionType, codexPermissionLevel?: CodexPermissionLevel): Promise<string> {
     this.assertAvailable();
     const tmuxName = `remote_dev_${nanoid(10)}`;
-    await runTmux(["new-session", "-d", "-s", tmuxName, "-c", rootPath, terminalCommand(this.commandFor(type))], terminalEnvironment());
+    await runTmux(["new-session", "-d", "-s", tmuxName, "-c", rootPath, terminalCommand(this.commandFor(type, codexPermissionLevel))], terminalEnvironment());
     await this.configureHistoryLimit(tmuxName);
     return tmuxName;
   }
@@ -84,8 +87,8 @@ function terminalEnvironment(): NodeJS.ProcessEnv {
   return env;
 }
 
-function terminalCommand(command: string): string {
-  return `stty -ixon 2>/dev/null; exec env -u NO_COLOR TERM=xterm-256color COLORTERM=${shellQuote(process.env.COLORTERM || "truecolor")} ${shellQuote(command)}`;
+function terminalCommand(command: string[]): string {
+  return `stty -ixon 2>/dev/null; exec env -u NO_COLOR TERM=xterm-256color COLORTERM=${shellQuote(process.env.COLORTERM || "truecolor")} ${command.map(shellQuote).join(" ")}`;
 }
 
 function shellQuote(value: string): string {

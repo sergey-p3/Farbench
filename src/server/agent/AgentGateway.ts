@@ -1,4 +1,5 @@
 import type {
+  CodexPermissionLevel,
   FileReadResponse,
   FileResource,
   GitBranchesResponse,
@@ -15,6 +16,7 @@ export interface CreateSessionInput {
   rootPath: string;
   name: string;
   type: SessionType;
+  codexPermissionLevel?: CodexPermissionLevel;
 }
 
 export interface WriteFileInput {

@@ -1,4 +1,5 @@
 export type SessionType = "bash" | "codex" | "claude";
+export type CodexPermissionLevel = "read-only" | "workspace-write" | "danger-full-access";
 export type SessionStatus = "starting" | "running" | "idle" | "disconnected" | "exited" | "crashed" | "killed" | "unknown";
 
 export interface User {

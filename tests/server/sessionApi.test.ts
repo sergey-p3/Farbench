@@ -6,7 +6,7 @@ import { afterEach, describe, expect, it } from "vitest";
 import { createApp } from "../../src/server/http/createApp.js";
 import type { ServerConfig } from "../../src/server/config.js";
 import { createDatabase } from "../../src/server/db.js";
-import type { AgentGateway } from "../../src/server/agent/AgentGateway.js";
+import type { AgentGateway, CreateSessionInput } from "../../src/server/agent/AgentGateway.js";
 
 let dir: string | null = null;
 const servers: Server[] = [];
@@ -18,6 +18,62 @@ afterEach(async () => {
 });
 
 describe("session API", () => {
+  it("forwards the selected Codex permission level when creating a session", async () => {
+    const { baseUrl, cookie, db, agent, workspace } = await startApp();
+
+    const response = await fetch(`${baseUrl}/api/workspaces/${workspace.id}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({
+        type: "codex",
+        name: "Codex full access",
+        codexPermissionLevel: "danger-full-access",
+      }),
+    });
+
+    expect(response.status).toBe(200);
+    await response.json();
+    expect(agent.createdSessions).toEqual([{
+      workspaceId: workspace.id,
+      rootPath: workspace.rootPath,
+      name: "Codex full access",
+      type: "codex",
+      codexPermissionLevel: "danger-full-access",
+    }]);
+    expect(db.listAuditEvents()[0]).toEqual(expect.objectContaining({
+      type: "session.create",
+      metadata: expect.objectContaining({ codexPermissionLevel: "danger-full-access" }),
+    }));
+  });
+
+  it("defaults Codex sessions to workspace permissions", async () => {
+    const { baseUrl, cookie, agent, workspace } = await startApp();
+
+    const response = await fetch(`${baseUrl}/api/workspaces/${workspace.id}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ type: "codex", name: "Codex" }),
+    });
+
+    expect(response.status).toBe(200);
+    await response.json();
+    expect(agent.createdSessions[0]?.codexPermissionLevel).toBe("workspace-write");
+  });
+
+  it("rejects an unknown Codex permission level before creating a session", async () => {
+    const { baseUrl, cookie, agent, workspace } = await startApp();
+
+    const response = await fetch(`${baseUrl}/api/workspaces/${workspace.id}/sessions`, {
+      method: "POST",
+      headers: { "content-type": "application/json", cookie },
+      body: JSON.stringify({ type: "codex", codexPermissionLevel: "unrestricted-ish" }),
+    });
+
+    expect(response.status).toBe(400);
+    expect(await response.json()).toEqual({ error: "Invalid Codex permission level" });
+    expect(agent.createdSessions).toEqual([]);
+  });
+
   it("kills the tmux session and marks the session killed when deleting a workspace session", async () => {
     const { baseUrl, cookie, db, agent, workspace } = await startApp();
     const session = db.createSession({ workspaceId: workspace.id, name: "Codex", type: "codex", tmuxName: "rd_codex" });
@@ -120,6 +176,7 @@ function closeServer(server: Server): Promise<void> {
 
 class FakeAgent implements AgentGateway {
   readonly killedTmuxNames: string[] = [];
+  readonly createdSessions: CreateSessionInput[] = [];
 
   async listFiles(): Promise<never[]> {
     return [];
@@ -165,7 +222,8 @@ class FakeAgent implements AgentGateway {
     throw new Error("not used");
   }
 
-  async createTerminalSession() {
+  async createTerminalSession(input: CreateSessionInput) {
+    this.createdSessions.push(input);
     return { tmuxName: "rd_created" };
   }
 

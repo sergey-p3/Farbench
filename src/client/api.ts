@@ -1,4 +1,5 @@
 import type {
+  CodexPermissionLevel,
   FileReadResponse,
   FileResource,
   GitBranchesResponse,
@@ -96,10 +97,15 @@ export const api = {
     return response.sessions;
   },
 
-  async createSession(workspaceId: string, type: SessionType, name: string): Promise<Session> {
+  async createSession(
+    workspaceId: string,
+    type: SessionType,
+    name: string,
+    codexPermissionLevel?: CodexPermissionLevel,
+  ): Promise<Session> {
     const response = await request<{ session: Session }>(`/api/workspaces/${encodeURIComponent(workspaceId)}/sessions`, {
       method: "POST",
-      ...jsonBody({ type, name }),
+      ...jsonBody({ type, name, ...(codexPermissionLevel ? { codexPermissionLevel } : {}) }),
     });
     return response.session;
   },
