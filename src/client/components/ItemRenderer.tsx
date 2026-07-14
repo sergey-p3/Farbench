@@ -5,13 +5,22 @@ import { PreviewPanel } from "./PreviewPanel.js";
 import { TerminalPane } from "./TerminalPane.js";
 
 interface ItemRendererProps {
+  isAgentComposerRequested: boolean;
   item: WorkspaceItem | null;
+  onCloseAgentComposer: (sessionId: string) => void;
   workspace: Workspace | null;
   onOpenCreateSheet: () => void;
   onUnauthorized: () => void;
 }
 
-export function ItemRenderer({ item, workspace, onOpenCreateSheet, onUnauthorized }: ItemRendererProps) {
+export function ItemRenderer({
+  isAgentComposerRequested,
+  item,
+  onCloseAgentComposer,
+  workspace,
+  onOpenCreateSheet,
+  onUnauthorized,
+}: ItemRendererProps) {
   if (!item) {
     return (
       <section className="focused-empty" aria-label="No active item">
@@ -35,7 +44,9 @@ export function ItemRenderer({ item, workspace, onOpenCreateSheet, onUnauthorize
     return (
       <TerminalPane
         displayKind={item.kind}
+        isAgentComposerRequested={isAgentComposerRequested}
         sessionId={item.sessionId ?? null}
+        onAgentComposerClosed={onCloseAgentComposer}
         onOpenCreateSheet={onOpenCreateSheet}
         onUnauthorized={onUnauthorized}
       />

@@ -5,6 +5,7 @@ export function WorkspaceTopBar({
   isExpanded,
   isPinned,
   onCreate,
+  onOpenAgentInput,
   onOpenSwitcher,
   onToggle,
   onTogglePin,
@@ -14,13 +15,14 @@ export function WorkspaceTopBar({
   isExpanded: boolean;
   isPinned: boolean;
   onCreate: () => void;
+  onOpenAgentInput: () => void;
   onOpenSwitcher: () => void;
   onToggle: () => void;
   onTogglePin: () => void;
   workspace: Workspace | null;
 }) {
   return (
-    <header className={`top-bar shell-top-bar ${isExpanded ? "top-menu-expanded" : "top-menu-collapsed"}`}>
+    <header className={`top-bar shell-top-bar ${active?.kind === "agent" && active.sessionId ? "agent-input-available" : ""} ${isExpanded ? "top-menu-expanded" : "top-menu-collapsed"}`}>
       {isExpanded ? (
         <>
           <button className="icon-button" aria-label="Open item switcher" onClick={onOpenSwitcher} type="button">⇄</button>
@@ -29,6 +31,15 @@ export function WorkspaceTopBar({
             <h1>{active?.title ?? "No item open"}</h1>
           </div>
           <span className="session-chip">{active ? `${active.kind} · ${active.status}` : "Empty"}</span>
+          {active?.kind === "agent" && active.sessionId ? (
+            <button
+              aria-label="Compose agent input"
+              className="icon-button"
+              onClick={onOpenAgentInput}
+              title="Compose agent input"
+              type="button"
+            >✎</button>
+          ) : null}
           <button className="icon-button" aria-label={isPinned ? "Unpin top menu" : "Pin top menu"} onClick={onTogglePin} type="button">⌖</button>
           <button className="icon-button primary-icon" aria-label="Create item" onClick={onCreate} type="button">+</button>
         </>

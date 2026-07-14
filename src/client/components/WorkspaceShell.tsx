@@ -19,6 +19,7 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
           isExpanded={shell.isTopMenuExpanded}
           isPinned={shell.isTopMenuPinned}
           onCreate={() => shell.setIsCreateOpen(true)}
+          onOpenAgentInput={shell.openAgentComposer}
           onOpenSwitcher={() => shell.setIsSwitcherOpen(true)}
           onToggle={shell.toggleTopMenu}
           onTogglePin={shell.toggleTopMenuPin}
@@ -32,7 +33,9 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
         ) : null}
         {shell.isLoading ? <p className="loading-state">Loading workspace...</p> : null}
         <PaneHost
+          agentComposerSessionId={shell.agentComposerSessionId}
           layout={shell.layout}
+          onCloseAgentComposer={shell.closeAgentComposer}
           workspace={shell.selectedWorkspace}
           onOpenCreateSheet={() => shell.setIsCreateOpen(true)}
           onUnauthorized={onUnauthorized}

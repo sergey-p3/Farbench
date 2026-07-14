@@ -36,15 +36,16 @@ export function useTerminalInput({
         pendingInputCount: pendingInputRef.current.length,
         readyState,
       });
-      return;
+      return true;
     }
     if (!socket || socket.readyState !== WebSocket.OPEN) {
       terminalDebugRef.current?.("input.dropped", { bytes: data.length, readyState });
       setStatus("Terminal is reconnecting.");
-      return;
+      return false;
     }
     terminalDebugRef.current?.("input.sent", { bytes: data.length, readyState });
     socket.send(JSON.stringify({ type: "input", data }));
+    return true;
   }, [setStatus, socketRef, terminalDebugRef]);
 
   const handleToolbarKey = useCallback((key: TerminalToolbarKey) => {

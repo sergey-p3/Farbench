@@ -1250,6 +1250,63 @@ test("agent pane shows agent connection status before history arrives", async ({
   await expect(page.getByText("Loading agent history...")).toBeVisible();
 });
 
+test("agent input composer restores drafts and clears them after terminal submission", async ({ page }) => {
+  await setupAgentInputComposerFixture(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+
+  await openTopMenu(page);
+  const composeButton = page.getByRole("button", { name: "Compose agent input" });
+  await expect(composeButton).toBeVisible();
+  await composeButton.click();
+
+  const dialog = page.getByRole("dialog", { name: "Compose agent input" });
+  const input = page.getByRole("textbox", { name: "Agent input" });
+  const draft = "Review this change\nand update the tests.";
+  await expect(dialog).toBeVisible();
+  await expect(input).toBeFocused();
+  await input.fill(draft);
+  await expect.poll(() => page.evaluate(() =>
+    window.localStorage.getItem("remote-dev-agent-input-draft:agent-composer-session"),
+  )).toBe(draft);
+
+  await page.getByRole("button", { name: "Minimize agent input" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect(page.getByRole("group", { name: "Minimized agent input" })).toBeVisible();
+  await page.getByRole("button", { name: "Restore agent input" }).click();
+  await expect(input).toHaveValue(draft);
+
+  await page.getByRole("button", { name: "Cancel agent input" }).click();
+  await expect(dialog).toHaveCount(0);
+  await page.getByRole("button", { name: "Switch to bash session" }).click();
+  await openTopMenu(page);
+  await expect(composeButton).toHaveCount(0);
+
+  await page.getByRole("button", { name: "Switch to codex session" }).click();
+  await expect(dialog).toBeVisible();
+  await expect(input).toHaveValue(draft);
+  await page.getByRole("button", { name: "Cancel agent input" }).click();
+
+  await page.reload();
+  await expect(dialog).toBeVisible();
+  await expect(input).toHaveValue(draft);
+  await page.getByRole("button", { name: "Send agent input" }).click();
+  await expect(dialog).toHaveCount(0);
+  await expect.poll(async () => page.evaluate(() => {
+    const messages = Reflect.get(window, "__agentComposerSentMessages") as string[];
+    return messages
+      .map((message) => JSON.parse(message) as { type: string; data?: string })
+      .filter((message) => message.type === "input")
+      .map((message) => message.data);
+  })).toContain("Review this change\rand update the tests.\r");
+  await expect.poll(() => page.evaluate(() =>
+    window.localStorage.getItem("remote-dev-agent-input-draft:agent-composer-session"),
+  )).toBeNull();
+
+  await page.reload();
+  await expect(dialog).toHaveCount(0);
+});
+
 async function setupConnectionStatusFixture(page: Page, session: Session): Promise<void> {
   await page.route("**/api/workspaces", async (route) => {
     await route.fulfill({
@@ -1350,4 +1407,127 @@ async function setupConnectionStatusFixture(page: Page, session: Session): Promi
       }
     });
   }, session);
+}
+
+async function setupAgentInputComposerFixture(page: Page): Promise<void> {
+  const sessions: Session[] = [
+    {
+      id: "agent-composer-session",
+      workspaceId: "w1",
+      name: "codex session",
+      type: "codex",
+      tmuxName: "agent-composer-session",
+      status: "running",
+      createdAt: "2026-07-14T00:00:00.000Z",
+      lastAttachedAt: null,
+      lastActivityAt: null,
+      endedAt: null,
+    },
+    {
+      id: "composer-terminal-session",
+      workspaceId: "w1",
+      name: "bash session",
+      type: "bash",
+      tmuxName: "composer-terminal-session",
+      status: "running",
+      createdAt: "2026-07-14T00:00:01.000Z",
+      lastAttachedAt: null,
+      lastActivityAt: null,
+      endedAt: null,
+    },
+  ];
+
+  await page.route("**/api/workspaces", async (route) => {
+    await route.fulfill({
+      contentType: "application/json",
+      json: {
+        workspaces: [{
+          id: "w1",
+          name: "agent-composer-workspace",
+          rootPath: "/workspace",
+          status: "available",
+        }],
+      },
+    });
+  });
+  await page.route("**/api/workspaces/w1/sessions", async (route) => {
+    await route.fulfill({ contentType: "application/json", json: { sessions } });
+  });
+  await page.addInitScript((initialSessions: Session[]) => {
+    const itemIds = initialSessions.map((session) => `session:${session.id}`);
+    window.localStorage.setItem("remote-dev-layout", JSON.stringify({
+      selectedWorkspaceId: "w1",
+      activePaneId: "main",
+      panes: [{
+        id: "main",
+        activeItemId: itemIds[0],
+        itemIds,
+      }],
+      items: initialSessions.map((session) => ({
+        id: `session:${session.id}`,
+        workspaceId: session.workspaceId,
+        kind: session.type === "bash" ? "terminal" : "agent",
+        title: session.name,
+        status: session.status,
+        sessionId: session.id,
+        config: { runtime: session.type },
+        createdAt: session.createdAt,
+        lastActiveAt: session.createdAt,
+      })),
+    }));
+
+    const sentMessages: string[] = [];
+    class AgentComposerSocket extends EventTarget {
+      static readonly CONNECTING = 0;
+      static readonly OPEN = 1;
+      static readonly CLOSING = 2;
+      static readonly CLOSED = 3;
+      readonly CONNECTING = 0;
+      readonly OPEN = 1;
+      readonly CLOSING = 2;
+      readonly CLOSED = 3;
+      readonly binaryType = "blob";
+      readonly bufferedAmount = 0;
+      readonly extensions = "";
+      readonly protocol = "";
+      readyState = AgentComposerSocket.CONNECTING;
+      onclose: ((event: CloseEvent) => void) | null = null;
+      onerror: ((event: Event) => void) | null = null;
+      onmessage: ((event: MessageEvent) => void) | null = null;
+      onopen: ((event: Event) => void) | null = null;
+
+      constructor(readonly url: string) {
+        super();
+        setTimeout(() => {
+          this.readyState = AgentComposerSocket.OPEN;
+          const event = new Event("open");
+          this.dispatchEvent(event);
+          this.onopen?.(event);
+        }, 0);
+      }
+
+      send(data: string) {
+        sentMessages.push(data);
+        const message = JSON.parse(data) as { type?: string };
+        if (message.type !== "attach") return;
+        setTimeout(() => {
+          const event = new MessageEvent("message", {
+            data: JSON.stringify({ type: "scrollback", data: "agent ready\r\n" }),
+          });
+          this.dispatchEvent(event);
+          this.onmessage?.(event);
+        }, 0);
+      }
+
+      close() {
+        this.readyState = AgentComposerSocket.CLOSED;
+        const event = new CloseEvent("close");
+        this.dispatchEvent(event);
+        this.onclose?.(event);
+      }
+    }
+
+    Reflect.set(window, "WebSocket", AgentComposerSocket);
+    Reflect.set(window, "__agentComposerSentMessages", sentMessages);
+  }, sessions);
 }
