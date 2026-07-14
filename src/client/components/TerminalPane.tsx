@@ -54,9 +54,18 @@ interface TerminalPaneProps {
 const LONG_PRESS_MS = 1_000;
 const LONG_PRESS_MOVE_TOLERANCE_PX = 10;
 const ARROW_INPUT_VIBRATION_MS = 12;
+const SELECTION_ACTIVATION_VIBRATION_MS = 30;
 const TERMINAL_ACTION_MENU_WIDTH_PX = 168;
 
 export { terminalSocketUrl };
+
+function vibrateTerminal(durationMs: number): void {
+  try {
+    navigator.vibrate?.(durationMs);
+  } catch {
+    // Haptics are optional and may be blocked by the browser or device settings.
+  }
+}
 
 export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreateSheet, onUnauthorized }: TerminalPaneProps) {
   const rootRef = useRef<HTMLDivElement | null>(null);
@@ -194,11 +203,7 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     const sequence = terminalControlSequence(direction, false);
     if (!sequence) return;
     sendTerminalInput(sequence.data);
-    try {
-      navigator.vibrate?.(ARROW_INPUT_VIBRATION_MS);
-    } catch {
-      // Haptics are optional and may be blocked by the browser or device settings.
-    }
+    vibrateTerminal(ARROW_INPUT_VIBRATION_MS);
   }, [sendTerminalInput]);
 
   const scheduleArrowRepeat = useCallback(function scheduleArrowRepeatTick() {
@@ -391,7 +396,9 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     const activateSelection = shouldActivateTerminalSelectionAfterArrowGesture(gesture.peakDistance);
     const { originX, originY } = gesture;
     clearArrowGesture();
-    if (activateSelection) selectTerminalWordAtPointer(originX, originY);
+    if (activateSelection && selectTerminalWordAtPointer(originX, originY)) {
+      vibrateTerminal(SELECTION_ACTIVATION_VIBRATION_MS);
+    }
   }, [clearArrowGesture, selectTerminalWordAtPointer]);
 
   const openTerminalActionMenu = useCallback((x: number, y: number) => {
