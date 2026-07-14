@@ -11,7 +11,7 @@ import { terminalControlSequence } from "../../terminalKeys.js";
 import type { TerminalSelectionHandleLayout } from "../../terminalSelection.js";
 import type { TerminalActionMenuState, TerminalArrowOverlayState } from "./TerminalChrome.js";
 
-const LONG_PRESS_MS = 1_000;
+const LONG_PRESS_MS = 500;
 const MOVE_TOLERANCE_PX = 10;
 const ARROW_INPUT_VIBRATION_MS = 12;
 const SELECTION_ACTIVATION_VIBRATION_MS = 30;
@@ -36,6 +36,8 @@ export interface TerminalExplicitTap {
 
 export function useTerminalArrowGesture({
   containerRef,
+  handleSelectionTapAtPointer,
+  openActionMenu,
   selectWordAtPointer,
   sendTerminalInput,
   setActionMenu,
@@ -44,6 +46,8 @@ export function useTerminalArrowGesture({
   terminalRef,
 }: {
   containerRef: RefObject<HTMLDivElement | null>;
+  handleSelectionTapAtPointer: (x: number, y: number) => boolean;
+  openActionMenu: (x: number, y: number) => void;
   selectWordAtPointer: (x: number, y: number) => boolean;
   sendTerminalInput: (data: string) => void;
   setActionMenu: Dispatch<SetStateAction<TerminalActionMenuState | null>>;
@@ -181,8 +185,11 @@ export function useTerminalArrowGesture({
     const activateSelection = shouldActivateTerminalSelectionAfterArrowGesture(gesture.peakDistance);
     const { originX, originY } = gesture;
     clearArrowGesture();
-    if (activateSelection && selectWordAtPointer(originX, originY)) vibrate(SELECTION_ACTIVATION_VIBRATION_MS);
-  }, [clearArrowGesture, selectWordAtPointer]);
+    if (activateSelection) {
+      if (selectWordAtPointer(originX, originY)) vibrate(SELECTION_ACTIVATION_VIBRATION_MS);
+      openActionMenu(originX, originY);
+    }
+  }, [clearArrowGesture, openActionMenu, selectWordAtPointer]);
 
   const cancelPointerGesture = useCallback(() => {
     explicitTapStartRef.current = null;
@@ -234,12 +241,13 @@ export function useTerminalArrowGesture({
       if (tap.pointerType === "touch" || tap.pointerType === "pen") {
         event.preventDefault();
         event.stopPropagation();
-        focusAtPointer(terminalRef.current, containerRef.current, event.clientX, event.clientY);
+        if (handleSelectionTapAtPointer(event.clientX, event.clientY)) openActionMenu(event.clientX, event.clientY);
+        else focusAtPointer(terminalRef.current, containerRef.current, event.clientX, event.clientY);
       } else terminalRef.current?.focus();
     }
     explicitTapStartRef.current = null;
     clearLongPress();
-  }, [clearLongPress, containerRef, releaseArrowGesture, terminalRef]);
+  }, [clearLongPress, containerRef, handleSelectionTapAtPointer, openActionMenu, releaseArrowGesture, terminalRef]);
 
   const handlePointerCancel = useCallback((event: React.PointerEvent<HTMLDivElement>) => {
     if (event.pointerType === "touch" && arrowGestureRef.current?.pointerId === event.pointerId) {
