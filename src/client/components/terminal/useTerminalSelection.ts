@@ -4,6 +4,7 @@ import { copyTextToClipboard } from "../../clipboard.js";
 import {
   terminalCellFromPointer,
   terminalHandleLayoutFromSelection,
+  terminalSelectionContainsCell,
   terminalSelectedTextFromBuffer,
   terminalSelectArgsFromEndpoints,
   terminalWordRangeAtCell,
@@ -93,6 +94,30 @@ export function useTerminalSelection({
     return true;
   }, [cellFromPointer, terminalRef, updateSelectionHandles]);
 
+  const handleSelectionTapAtPointer = useCallback((clientX: number, clientY: number): boolean => {
+    const terminal = terminalRef.current;
+    const cell = cellFromPointer(clientX, clientY);
+    const selection = terminal?.getSelectionPosition();
+    const isWithinSelection = Boolean(
+      terminal
+      && cell
+      && selection
+      && terminalSelectionContainsCell({
+        cell,
+        cols: terminal.cols,
+        selection: {
+          start: { column: selection.start.x, row: selection.start.y },
+          end: { column: selection.end.x, row: selection.end.y },
+        },
+      }),
+    );
+    if (!isWithinSelection) {
+      terminal?.clearSelection();
+      setSelectionHandles(null);
+    }
+    return isWithinSelection;
+  }, [cellFromPointer, terminalRef]);
+
   const copySelection = useCallback(async () => {
     const terminal = terminalRef.current;
     const position = terminal?.getSelectionPosition();
@@ -165,6 +190,7 @@ export function useTerminalSelection({
   return {
     beginHandleDrag,
     copySelection,
+    handleSelectionTapAtPointer,
     selectAll: () => terminalRef.current?.selectAll(),
     selectionHandles,
     selectWordAtPointer,

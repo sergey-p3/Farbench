@@ -54,8 +54,16 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
 
   const input = useTerminalInput({ socketRef, terminalDebugRef, terminalRef, setStatus });
   const selection = useTerminalSelection({ containerRef, stageRef, terminalRef, setStatus });
+  const openActionMenu = useCallback((x: number, y: number) => {
+    const nextX = Math.max(8, Math.min(x, window.innerWidth - ACTION_MENU_WIDTH_PX - 8));
+    const nextY = Math.max(8, Math.min(y, window.innerHeight - 160));
+    if (!terminalRef.current?.getSelection()) selection.selectWordAtPointer(x, y);
+    setActionMenu({ pointerX: x, pointerY: y, x: nextX, y: nextY });
+  }, [selection.selectWordAtPointer]);
   const arrow = useTerminalArrowGesture({
     containerRef,
+    handleSelectionTapAtPointer: selection.handleSelectionTapAtPointer,
+    openActionMenu,
     selectWordAtPointer: selection.selectWordAtPointer,
     sendTerminalInput: input.sendTerminalInput,
     setActionMenu,
@@ -68,14 +76,6 @@ export function TerminalPane({ sessionId, displayKind = "terminal", onOpenCreate
     autoReconnectAttemptsRef.current = 0;
     setRetryNonce((current) => current + 1);
   }, []);
-
-  const openActionMenu = useCallback((x: number, y: number) => {
-    arrow.clearLongPress();
-    const nextX = Math.max(8, Math.min(x, window.innerWidth - ACTION_MENU_WIDTH_PX - 8));
-    const nextY = Math.max(8, Math.min(y, window.innerHeight - 160));
-    if (!terminalRef.current?.getSelection()) selection.selectWordAtPointer(x, y);
-    setActionMenu({ pointerX: x, pointerY: y, x: nextX, y: nextY });
-  }, [arrow.clearLongPress, selection.selectWordAtPointer]);
 
   const handleContextMenu = useCallback((event: React.MouseEvent<HTMLDivElement>) => {
     event.preventDefault();

@@ -923,10 +923,10 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
     pointerId: 71,
     pointerType: "touch",
   });
-  await page.waitForTimeout(650);
+  await page.waitForTimeout(300);
   await expect(page.getByRole("menu", { name: "Terminal actions" })).toHaveCount(0);
   await expect(page.getByRole("status", { name: "Arrow key gesture control" })).toHaveCount(0);
-  await page.waitForTimeout(500);
+  await page.waitForTimeout(300);
   const arrowGesture = page.getByRole("status", { name: "Arrow key gesture control" });
   await expect(arrowGesture).toBeVisible();
   await expect(arrowGesture).toHaveAttribute("data-direction", "inactive");
@@ -945,7 +945,51 @@ test("mobile terminal special keys send toolbar input while preserving keyboard 
   await expect(arrowGesture).toHaveCount(0);
   await expect(startHandle).toBeVisible();
   await expect(endHandle).toBeVisible();
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toBeVisible();
+  await page.keyboard.press("Escape");
   await expect(page.getByRole("menu", { name: "Terminal actions" })).toHaveCount(0);
+  await terminalSurface.dispatchEvent("pointerdown", {
+    bubbles: true,
+    button: 0,
+    cancelable: true,
+    clientX: longPressTarget.x + 24,
+    clientY: longPressTarget.y + 68,
+    pointerId: 73,
+    pointerType: "touch",
+  });
+  await terminalSurface.dispatchEvent("pointerup", {
+    bubbles: true,
+    button: 0,
+    cancelable: true,
+    clientX: longPressTarget.x + 24,
+    clientY: longPressTarget.y + 68,
+    pointerId: 73,
+    pointerType: "touch",
+  });
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toBeVisible();
+  await page.keyboard.press("Escape");
+  await terminalSurface.dispatchEvent("pointerdown", {
+    bubbles: true,
+    button: 0,
+    cancelable: true,
+    clientX: longPressTarget.x + 24,
+    clientY: longPressTarget.y + 120,
+    pointerId: 74,
+    pointerType: "touch",
+  });
+  await terminalSurface.dispatchEvent("pointerup", {
+    bubbles: true,
+    button: 0,
+    cancelable: true,
+    clientX: longPressTarget.x + 24,
+    clientY: longPressTarget.y + 120,
+    pointerId: 74,
+    pointerType: "touch",
+  });
+  await expect(startHandle).toHaveCount(0);
+  await expect(endHandle).toHaveCount(0);
+  await expect(page.getByRole("menu", { name: "Terminal actions" })).toHaveCount(0);
+  await page.getByLabel("Terminal input").evaluate((input) => input.blur());
   const selectionVibrations = await page.evaluate(
     () => Reflect.get(window, "__terminalVibrationCalls") as number[],
   );
