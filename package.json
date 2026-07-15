@@ -1,7 +1,19 @@
 {
   "name": "remote-development",
   "version": "0.1.0",
+  "description": "A browser-first control plane for durable terminal coding-agent sessions on a trusted development machine.",
   "private": true,
+  "license": "MIT",
+  "keywords": [
+    "remote-development",
+    "terminal",
+    "coding-agent",
+    "tmux"
+  ],
+  "engines": {
+    "node": ">=22"
+  },
+  "packageManager": "npm@10",
   "type": "module",
   "bin": {
     "remote-dev": "dist/server/cli.js"
@@ -12,7 +24,8 @@
     "typecheck": "tsc --noEmit",
     "test": "vitest run",
     "test:e2e": "playwright test",
-    "lint": "tsc --noEmit"
+    "lint": "tsc --noEmit",
+    "verify": "npm run typecheck && npm test && npm run build"
   },
   "dependencies": {
     "@monaco-editor/react": "^4.7.0",
@@ -37,10 +50,13 @@
     "@types/react": "^19.0.2",
     "@types/react-dom": "^19.0.2",
     "@types/ws": "^8.5.13",
-    "@vitest/coverage-v8": "^2.1.9",
+    "@vitest/coverage-v8": "^4.1.10",
     "tsx": "^4.19.2",
     "typescript": "^5.7.2",
     "vite": "^6.0.5",
-    "vitest": "^2.1.8"
+    "vitest": "^4.1.10"
+  },
+  "overrides": {
+    "dompurify": "^3.4.12"
   }
 }

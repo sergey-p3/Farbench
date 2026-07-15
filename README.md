@@ -1,39 +1,92 @@
 # Remote Development
 
-Remote Development is a browser-first control plane for durable terminal coding-agent sessions on a trusted dev machine.
+Remote Development is a browser-first control plane for durable terminal
+coding-agent sessions on a trusted development machine. It keeps terminal sessions
+alive with tmux and brings terminals, files, Git changes, and local HTTP previews
+into one responsive browser workspace.
 
-## Run
+> [!WARNING]
+> This is pre-1.0 software with privileged access to the selected workspace and
+> host processes. Use it on trusted machines and networks. Direct internet exposure
+> is not a supported deployment model.
 
+## Features
+
+- Durable tmux-backed Bash, Codex, and Claude sessions
+- Browser reconnection after refresh or device changes
+- Workspace file browsing and editing with conflict detection
+- Git status, commit history, and readable diffs
+- Authenticated previews of local HTTP services
+- Desktop and mobile-friendly terminal controls
+- Single-owner token authentication
+
+## Requirements
+
+- Node.js 22 or newer and npm
+- Git
+- tmux for terminal sessions
+- Codex or Claude installed locally for their respective session types
+- A Chromium browser installed through Playwright for E2E tests
+
+The server starts without tmux, but cannot launch terminal sessions until tmux is
+available.
+
+## Quick start
 
 ```sh
-npm install
+cd remote-development
+npm ci
 npm run build
 node dist/server/cli.js serve --host 127.0.0.1 --port 3000 --workspace .
 ```
 
-Or use the complete run script:
+Open <http://localhost:3000> and sign in with `dev-password`. For a shorter local
+workflow, `./scripts/run.sh` installs dependencies, builds, and starts the server on
+`127.0.0.1:7000`.
+
+## Configuration
+
+The CLI accepts these `serve` options:
+
+| Option | Default | Purpose |
+| --- | --- | --- |
+| `--host` | `127.0.0.1` | Address on which the server listens |
+| `--port` | `3000` | HTTP port |
+| `--workspace` | current directory | Workspace the app can access |
+| `--workspace-name` | directory name | Display name for the workspace |
+| `--data-dir` | `~/.remote-dev` | SQLite state and application data |
+| `--auth-token` | `dev-password` | Single-owner login token |
+
+A non-loopback host requires an explicit authentication token:
 
 ```sh
-./scripts/run.sh
+node dist/server/cli.js serve \
+  --host 0.0.0.0 \
+  --port 3000 \
+  --workspace /path/to/project \
+  --auth-token '<strong-unique-secret>'
 ```
 
-The run scripts accept environment variables for the server options:
+The helper scripts accept equivalent environment variables: `HOST`, `PORT`,
+`WORKSPACE`, `WORKSPACE_NAME`, `DATA_DIR`, and `AUTH_TOKEN`. `ALLOWED_HOSTS` is a
+comma-separated list of additional hostnames accepted by the Vite development
+server.
+
+## Development
+
+Install locked dependencies and start the hot-reloading server:
 
 ```sh
-HOST=0.0.0.0 AUTH_TOKEN=<choose-a-secret> ./scripts/run.sh
+npm ci
+./scripts/dev.sh
 ```
 
-Available scripts:
+`dev.sh` defaults to `0.0.0.0:9154` and token `dev-password`; do not use those
+defaults on an untrusted network. It uses the directory from which it was launched
+as the workspace and generates a short workspace name. Override any of the script
+environment variables when needed.
 
-- `./scripts/run.sh` installs dependencies, builds, and starts the built server.
-- `./scripts/dev.sh` installs dependencies and starts a hot-reloading development server with LAN-friendly defaults.
-- `./scripts/test.sh` installs dependencies and runs unit/integration tests.
-- `./scripts/e2e.sh` installs dependencies and runs Playwright E2E tests.
-- `./scripts/verify.sh` installs dependencies and runs typecheck, tests, build, and E2E tests.
-
-`run.sh` defaults to port `7000`; `dev.sh` defaults to port `9154`. Both use the directory where you launched the script as `WORKSPACE` and a random 5-8 character workspace name. `dev.sh` binds to `0.0.0.0` and passes `AUTH_TOKEN=dev-password` by default; override with `HOST`, `PORT`, `WORKSPACE`, `WORKSPACE_NAME`, or `AUTH_TOKEN` when needed.
-
-`dev.sh` can also run as a background daemon that survives closing the launching terminal:
+The development server can also run in the background:
 
 ```sh
 ./scripts/dev.sh --daemon
@@ -41,67 +94,43 @@ Available scripts:
 ./scripts/dev.sh --stop
 ```
 
-Daemon state is stored in `.remote-dev/dev.pid`, with logs in `.remote-dev/dev.log`. Override `REMOTE_DEV_RUN_DIR` to store those files somewhere else.
+Daemon state is stored in `.remote-dev/dev.pid`, with logs in
+`.remote-dev/dev.log`. Set `REMOTE_DEV_RUN_DIR` to move those files.
 
-Loopback development access uses the default token:
+### Project scripts
 
-```text
-dev-password
-```
+| Command | Purpose |
+| --- | --- |
+| `npm run dev` | Start the TypeScript server directly on loopback |
+| `npm run build` | Build the browser client and server |
+| `npm run typecheck` | Run strict TypeScript checks |
+| `npm test` | Run unit and integration tests |
+| `npm run test:e2e` | Run Playwright E2E tests |
+| `npm run verify` | Run typecheck, unit tests, and build |
+| `./scripts/verify.sh` | Install dependencies and run every check, including E2E |
 
-## LAN Access
-
-To serve the app on your local network, bind to all interfaces and provide an explicit auth token:
-
-```sh
-node dist/server/cli.js serve --host 0.0.0.0 --port 3000 --workspace . --auth-token <choose-a-secret>
-```
-
-Non-loopback hosts require an explicit `--auth-token`.
-
-## MVP Capabilities
-
-- Single-owner login
-- Local workspace dashboard
-- `tmux`-backed `bash`, `codex`, and `claude` sessions
-- Browser reconnect after refresh or device switch
-- File tree and editor-lite conflict detection
-- Git status and diffs
-- Manual authenticated HTTP preview
-
-## Requirements
-
-- Node.js 22+
-- `tmux`
-- `git`
-- Codex and Claude binaries for those session types
-- Playwright browser install for E2E tests, if needed
-
-`tmux` is required when starting terminal sessions. The server can start without `tmux`, but terminal session launch will require it.
-
-## Verification
+Before the first E2E run, install Chromium and its system dependencies:
 
 ```sh
-npm run typecheck
-npm test
-npm run build
-npm run test:e2e
+npx playwright install --with-deps chromium
 ```
 
-E2E tests use isolated `test-results` workspace and data directories. They intentionally do not start `tmux`-backed sessions to avoid orphaning durable `tmux` sessions.
+E2E tests use isolated directories under `test-results` and intentionally avoid
+starting tmux-backed sessions so test runs do not leave durable sessions behind.
 
-## Manual LAN Smoke Test
+## Security
 
-1. Start the LAN server:
+Remote Development acts with the permissions of the user who starts it. It can run
+commands, edit files, inspect Git repositories, and proxy local web services. Read
+[SECURITY.md](SECURITY.md) before using a non-loopback binding, and report
+vulnerabilities privately as described there.
 
-   ```sh
-   node dist/server/cli.js serve --host 0.0.0.0 --port 3000 --workspace . --auth-token <choose-a-secret>
-   ```
+## Contributing
 
-2. Confirm the server prints a LAN URL.
-3. Open the LAN URL from another device on the same trusted network.
-4. Log in with the chosen auth token.
-5. Start a `bash` session. This requires `tmux` on the dev machine.
-6. Refresh the browser and confirm the session reconnects.
-7. Open the files panel and make a small edit to a non-critical file.
-8. Preview a known local HTTP server port through the authenticated HTTP preview.
+Contributions are welcome. See [CONTRIBUTING.md](CONTRIBUTING.md) for setup,
+validation, and pull request guidance. Participation is governed by the
+[Code of Conduct](CODE_OF_CONDUCT.md).
+
+## License
+
+Licensed under the [MIT License](LICENSE).

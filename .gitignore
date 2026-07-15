@@ -11,3 +11,9 @@ test-results/
 # local env (uncommitted)
 .env.local
 .env.*.local
+
+# editor and OS files
+.DS_Store
+.idea/
+.vscode/
+*.swp
