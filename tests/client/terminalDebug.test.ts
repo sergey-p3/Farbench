@@ -26,7 +26,7 @@ describe("terminalDebug", () => {
     disabled("socket.close", { readyState: "closed" });
 
     expect(info).toHaveBeenCalledTimes(1);
-    expect(info).toHaveBeenCalledWith("[remote-dev terminal]", {
+    expect(info).toHaveBeenCalledWith("[farbench terminal]", {
       component: "TerminalPane",
       event: "socket.open",
       instanceId: 7,

@@ -1,7 +1,7 @@
 import type { BrowserLayout } from "../shared/types.js";
 import { defaultLayout, normalizeLayout } from "./itemLayout.js";
 
-const STORAGE_KEY = "remote-dev-layout";
+const STORAGE_KEY = "farbench-layout";
 
 export { defaultLayout, normalizeLayout };
 

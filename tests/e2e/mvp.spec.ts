@@ -209,7 +209,7 @@ test("right-side shortcut rail switches between persisted open items", async ({ 
   });
 
   await page.addInitScript(() => {
-    window.localStorage.setItem("remote-dev-layout", JSON.stringify({
+    window.localStorage.setItem("farbench-layout", JSON.stringify({
       selectedWorkspaceId: "w1",
       activePaneId: "main",
       panes: [{
@@ -1267,7 +1267,7 @@ test("agent input composer restores drafts and clears them after terminal submis
   await expect(input).toBeFocused();
   await input.fill(draft);
   await expect.poll(() => page.evaluate(() =>
-    window.localStorage.getItem("remote-dev-agent-input-draft:agent-composer-session"),
+    window.localStorage.getItem("farbench-agent-input-draft:agent-composer-session"),
   )).toBe(draft);
 
   await page.getByRole("button", { name: "Minimize agent input" }).click();
@@ -1300,7 +1300,7 @@ test("agent input composer restores drafts and clears them after terminal submis
       .map((message) => message.data);
   })).toContain("Review this change\rand update the tests.\r");
   await expect.poll(() => page.evaluate(() =>
-    window.localStorage.getItem("remote-dev-agent-input-draft:agent-composer-session"),
+    window.localStorage.getItem("farbench-agent-input-draft:agent-composer-session"),
   )).toBeNull();
 
   await page.reload();
@@ -1327,7 +1327,7 @@ async function setupConnectionStatusFixture(page: Page, session: Session): Promi
   await page.addInitScript((initialSession) => {
     const itemKind = initialSession.type === "bash" ? "terminal" : "agent";
     const itemId = `session:${initialSession.id}`;
-    window.localStorage.setItem("remote-dev-layout", JSON.stringify({
+    window.localStorage.setItem("farbench-layout", JSON.stringify({
       selectedWorkspaceId: "w1",
       activePaneId: "main",
       panes: [{
@@ -1455,7 +1455,7 @@ async function setupAgentInputComposerFixture(page: Page): Promise<void> {
   });
   await page.addInitScript((initialSessions: Session[]) => {
     const itemIds = initialSessions.map((session) => `session:${session.id}`);
-    window.localStorage.setItem("remote-dev-layout", JSON.stringify({
+    window.localStorage.setItem("farbench-layout", JSON.stringify({
       selectedWorkspaceId: "w1",
       activePaneId: "main",
       panes: [{

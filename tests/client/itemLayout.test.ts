@@ -18,7 +18,7 @@ function session(overrides: Partial<Session>): Session {
     workspaceId: "w1",
     name: "bash session",
     type: "bash",
-    tmuxName: "remote-dev-s1",
+    tmuxName: "farbench-s1",
     status: "running",
     createdAt: "2026-06-21T10:00:00.000Z",
     lastAttachedAt: null,

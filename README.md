@@ -1,9 +1,9 @@
-# Remote Development
+# Farbench
 
-Remote Development is a browser-first control plane for durable terminal
-coding-agent sessions on a trusted development machine. It keeps terminal sessions
-alive with tmux and brings terminals, files, Git changes, and local HTTP previews
-into one responsive browser workspace.
+Farbench is a browser-first remote development workspace for terminals, coding
+agents, files, Git, and application previews. It keeps terminal sessions alive with
+tmux and brings the essential tools on a trusted development machine into one
+responsive browser workspace.
 
 > [!WARNING]
 > This is pre-1.0 software with privileged access to the selected workspace and
@@ -34,7 +34,7 @@ available.
 ## Quick start
 
 ```sh
-cd remote-development
+cd farbench
 npm ci
 npm run build
 node dist/server/cli.js serve --host 127.0.0.1 --port 3000 --workspace .
@@ -54,7 +54,7 @@ The CLI accepts these `serve` options:
 | `--port` | `3000` | HTTP port |
 | `--workspace` | current directory | Workspace the app can access |
 | `--workspace-name` | directory name | Display name for the workspace |
-| `--data-dir` | `~/.remote-dev` | SQLite state and application data |
+| `--data-dir` | `~/.farbench` | SQLite state and application data |
 | `--auth-token` | `dev-password` | Single-owner login token |
 
 A non-loopback host requires an explicit authentication token:
@@ -94,8 +94,8 @@ The development server can also run in the background:
 ./scripts/dev.sh --stop
 ```
 
-Daemon state is stored in `.remote-dev/dev.pid`, with logs in
-`.remote-dev/dev.log`. Set `REMOTE_DEV_RUN_DIR` to move those files.
+Daemon state is stored in `.farbench/dev.pid`, with logs in
+`.farbench/dev.log`. Set `FARBENCH_RUN_DIR` to move those files.
 
 ### Project scripts
 
@@ -120,7 +120,7 @@ starting tmux-backed sessions so test runs do not leave durable sessions behind.
 
 ## Security
 
-Remote Development acts with the permissions of the user who starts it. It can run
+Farbench acts with the permissions of the user who starts it. It can run
 commands, edit files, inspect Git repositories, and proxy local web services. Read
 [SECURITY.md](SECURITY.md) before using a non-loopback binding, and report
 vulnerabilities privately as described there.

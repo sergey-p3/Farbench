@@ -26,7 +26,7 @@ describe("TmuxManager", () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       "tmux",
-      expect.arrayContaining(["set-option", "-t", expect.stringMatching(/^remote_dev_/), "history-limit", String(TERMINAL_HISTORY_LINES)]),
+      expect.arrayContaining(["set-option", "-t", expect.stringMatching(/^farbench_/), "history-limit", String(TERMINAL_HISTORY_LINES)]),
       expect.any(Object),
     );
   });
@@ -56,16 +56,16 @@ describe("TmuxManager", () => {
     const { TmuxManager } = await import("../../src/server/terminal/TmuxManager.js");
     const tmux = new TmuxManager();
 
-    await tmux.capture("remote_dev_test");
+    await tmux.capture("farbench_test");
 
     expect(spawnMock).toHaveBeenCalledWith(
       "tmux",
-      ["set-option", "-t", "remote_dev_test", "history-limit", String(TERMINAL_HISTORY_LINES)],
+      ["set-option", "-t", "farbench_test", "history-limit", String(TERMINAL_HISTORY_LINES)],
       expect.any(Object),
     );
     expect(spawnMock).toHaveBeenCalledWith(
       "tmux",
-      ["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`, "-t", "remote_dev_test"],
+      ["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`, "-t", "farbench_test"],
       expect.any(Object),
     );
   });
@@ -74,11 +74,11 @@ describe("TmuxManager", () => {
     const { TmuxManager } = await import("../../src/server/terminal/TmuxManager.js");
     const tmux = new TmuxManager();
 
-    await tmux.capture("remote_dev_test", true);
+    await tmux.capture("farbench_test", true);
 
     expect(spawnMock).toHaveBeenCalledWith(
       "tmux",
-      ["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`, "-E", "-1", "-t", "remote_dev_test"],
+      ["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`, "-E", "-1", "-t", "farbench_test"],
       expect.any(Object),
     );
   });

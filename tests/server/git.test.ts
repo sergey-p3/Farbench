@@ -43,7 +43,7 @@ afterEach(async () => {
 
 describe("LocalAgent git integration", () => {
   it("returns structured text content and patch for an unstaged tracked file", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -68,7 +68,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("returns structured text content for a staged-only tracked file", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -92,7 +92,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("uses index content as original for a staged-added file with unstaged edits", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -116,7 +116,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("returns structured text content for added and deleted files", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -158,7 +158,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("reports tracked file changes and returns a path-scoped diff", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -181,7 +181,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("returns a staged diff when a tracked file has only staged changes", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -205,7 +205,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("marks untracked text files as diffable and returns added-line patch content", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -237,7 +237,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("returns commit history with line counts and commit details", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init", "-b", "main"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -260,7 +260,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("lists branch divergence, switches branches, and stages files", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init", "-b", "main"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -286,7 +286,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("returns changed files and file content for a selected commit", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init", "-b", "main"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -306,7 +306,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("returns a stable bad request when git diff path is missing", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const config: ServerConfig = {
@@ -337,7 +337,7 @@ describe("LocalAgent git integration", () => {
   });
 
   it("preserves leading and trailing spaces in git file diff paths", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);

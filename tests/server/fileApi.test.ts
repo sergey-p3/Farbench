@@ -46,7 +46,7 @@ afterEach(async () => {
 
 describe("file api", () => {
   it("returns 409 when a save uses a stale file version", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-file-api-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-file-api-"));
     writeFileSync(join(dir, "note.txt"), "first");
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });

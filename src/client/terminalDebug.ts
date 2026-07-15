@@ -40,7 +40,7 @@ export function createTerminalDebugLogger(
 
   return (event, fields = {}) => {
     if (!enabled) return;
-    consoleLike.info("[remote-dev terminal]", compactPayload({
+    consoleLike.info("[farbench terminal]", compactPayload({
       ...context,
       event,
       ...fields,

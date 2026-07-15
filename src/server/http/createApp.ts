@@ -136,7 +136,7 @@ function registerTerminalUpgrade(
 
 async function createDevClient(server: Server, injected?: DevClient): Promise<DevClient | null> {
   if (injected) return injected;
-  if (process.env.REMOTE_DEV_VITE !== "1") return null;
+  if (process.env.FARBENCH_VITE !== "1") return null;
 
   const { createServer: createViteServer } = await import("vite");
   return createViteServer({

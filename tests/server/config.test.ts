@@ -12,7 +12,7 @@ afterEach(() => {
 });
 
 function dataDirArgs(): string[] {
-  dir = mkdtempSync(join(tmpdir(), "remote-dev-config-"));
+  dir = mkdtempSync(join(tmpdir(), "farbench-config-"));
   return ["--data-dir", dir];
 }
 

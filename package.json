@@ -1,11 +1,12 @@
 {
-  "name": "remote-development",
+  "name": "farbench",
   "version": "0.1.0",
-  "description": "A browser-first control plane for durable terminal coding-agent sessions on a trusted development machine.",
+  "description": "A browser-first remote development workspace for terminals, coding agents, files, Git, and application previews.",
   "private": true,
   "license": "MIT",
   "keywords": [
     "remote-development",
+    "remote-workspace",
     "terminal",
     "coding-agent",
     "tmux"
@@ -16,7 +17,7 @@
   "packageManager": "npm@10",
   "type": "module",
   "bin": {
-    "remote-dev": "dist/server/cli.js"
+    "farbench": "dist/server/cli.js"
   },
   "scripts": {
     "dev": "tsx src/server/cli.ts serve --host 127.0.0.1 --port 3000 --workspace .",

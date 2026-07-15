@@ -21,7 +21,7 @@ interface TerminalDebugContext {
 const TRUE_VALUES = new Set(["1", "true", "yes", "on"]);
 
 export function terminalDebugEnabled(env: NodeJS.ProcessEnv = process.env): boolean {
-  return TRUE_VALUES.has(String(env.REMOTE_DEV_TERMINAL_DEBUG ?? "").trim().toLowerCase());
+  return TRUE_VALUES.has(String(env.FARBENCH_TERMINAL_DEBUG ?? "").trim().toLowerCase());
 }
 
 export function createTerminalDebugLogger(
@@ -36,7 +36,7 @@ export function createTerminalDebugLogger(
     enabled,
     log(event, fields = {}) {
       if (!enabled) return;
-      consoleLike.info("[remote-dev terminal]", compactPayload({
+      consoleLike.info("[farbench terminal]", compactPayload({
         ...context,
         event,
         ...fields,

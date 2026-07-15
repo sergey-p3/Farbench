@@ -48,7 +48,7 @@ export function Dashboard({
   }
 
   return (
-    <aside className="dashboard" aria-label="Remote development dashboard">
+    <aside className="dashboard" aria-label="Farbench dashboard">
       <section className="dashboard-section">
         <div className="section-title">
           <h2>Workspaces</h2>

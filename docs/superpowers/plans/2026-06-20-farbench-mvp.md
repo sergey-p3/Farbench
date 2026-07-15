@@ -1,4 +1,4 @@
-# Remote Development MVP Implementation Plan
+# Farbench MVP Implementation Plan
 
 > **For agentic workers:** REQUIRED SUB-SKILL: Use superpowers:subagent-driven-development (recommended) or superpowers:executing-plans to implement this plan task-by-task. Steps use checkbox (`- [ ]`) syntax for tracking.
 
@@ -22,7 +22,7 @@ This plan implements the approved MVP as one vertical product slice. It intentio
 - Create: `vite.config.ts` - Vite client build and Vitest browser-side defaults.
 - Create: `playwright.config.ts` - E2E runner config.
 - Create: `src/shared/types.ts` - API/domain types used by server and client.
-- Create: `src/server/cli.ts` - `remote-dev serve` entrypoint.
+- Create: `src/server/cli.ts` - `farbench serve` entrypoint.
 - Create: `src/server/config.ts` - CLI/config parsing and URL printing helpers.
 - Create: `src/server/db.ts` - SQLite schema and typed metadata access.
 - Create: `src/server/auth.ts` - single-user session cookie auth.
@@ -66,12 +66,12 @@ Create `package.json` with:
 
 ```json
 {
-  "name": "remote-development",
+  "name": "farbench",
   "version": "0.1.0",
   "private": true,
   "type": "module",
   "bin": {
-    "remote-dev": "dist/server/cli.js"
+    "farbench": "dist/server/cli.js"
   },
   "scripts": {
     "dev": "tsx src/server/cli.ts serve --host 127.0.0.1 --port 3000 --workspace .",
@@ -121,7 +121,7 @@ dist/
 coverage/
 playwright-report/
 test-results/
-.remote-dev/
+.farbench/
 *.log
 ```
 
@@ -329,7 +329,7 @@ afterEach(() => {
 
 describe("metadata database", () => {
   it("stores active and closed sessions for reconnect/history views", () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-db-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "Codex", type: "codex", tmuxName: "rd_demo" });
@@ -498,7 +498,7 @@ export function parseServeArgs(argv: string[]): ServerConfig {
     return index >= 0 && argv[index + 1] ? argv[index + 1] : fallback;
   };
   const workspacePath = resolve(get("--workspace", "."));
-  const dataDir = resolve(get("--data-dir", `${homedir()}/.remote-dev`));
+  const dataDir = resolve(get("--data-dir", `${homedir()}/.farbench`));
   mkdirSync(dataDir, { recursive: true });
   return {
     host: get("--host", "127.0.0.1"),
@@ -527,7 +527,7 @@ import type { NextFunction, Request, Response } from "express";
 import { parse, serialize } from "cookie";
 import { createHash, timingSafeEqual } from "node:crypto";
 
-const COOKIE_NAME = "remote_dev_session";
+const COOKIE_NAME = "farbench_session";
 
 export function tokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");
@@ -584,7 +584,7 @@ import { createApp } from "./http/createApp.js";
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (command !== "serve") {
-    console.error("Usage: remote-dev serve [--host 127.0.0.1] [--port 3000] [--workspace .]");
+    console.error("Usage: farbench serve [--host 127.0.0.1] [--port 3000] [--workspace .]");
     process.exit(1);
   }
 
@@ -596,7 +596,7 @@ async function main() {
   server.listen(config.port, config.host, () => {
     const localUrl = `http://localhost:${config.port}`;
     const lan = config.host === "0.0.0.0" ? lanAddress() : null;
-    console.log("Remote Dev is running:");
+    console.log("Farbench is running:");
     console.log(`Workspace: ${workspace.name} (${workspace.rootPath})`);
     console.log(`Local: ${localUrl}`);
     if (lan) console.log(`LAN:   http://${lan}:${config.port}`);
@@ -655,19 +655,19 @@ afterEach(() => {
 
 describe("resolveWorkspacePath", () => {
   it("allows paths inside the workspace", () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-root-"));
     writeFileSync(join(root, "a.txt"), "hello");
     expect(resolveWorkspacePath(root, "a.txt").absolutePath).toBe(join(root, "a.txt"));
   });
 
   it("blocks traversal outside the workspace", () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-root-"));
     expect(() => resolveWorkspacePath(root, "../secret.txt")).toThrow("Path escapes workspace");
   });
 
   it("blocks symlinks that resolve outside the workspace", () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
-    const outside = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-root-"));
+    const outside = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     writeFileSync(join(outside, "secret.txt"), "secret");
     symlinkSync(join(outside, "secret.txt"), join(root, "link.txt"));
     expect(() => resolveWorkspacePath(root, "link.txt")).toThrow("Path escapes workspace");
@@ -696,7 +696,7 @@ afterEach(() => {
 
 describe("LocalAgent files", () => {
   it("blocks save when file version changed after read", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     const path = join(root, "note.txt");
     writeFileSync(path, "first");
     const agent = new LocalAgent();
@@ -936,7 +936,7 @@ export class TmuxManager {
 
   async create(rootPath: string, type: SessionType): Promise<string> {
     this.assertAvailable();
-    const tmuxName = `remote_dev_${nanoid(10)}`;
+    const tmuxName = `farbench_${nanoid(10)}`;
     const command = this.commandFor(type);
     await new Promise<void>((resolve, reject) => {
       const child = spawn("tmux", ["new-session", "-d", "-s", tmuxName, "-c", rootPath, command], { stdio: "pipe" });
@@ -1117,7 +1117,7 @@ afterEach(() => {
 
 describe("LocalAgent git", () => {
   it("returns changed files and diffs", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-git-"));
     execFileSync("git", ["init"], { cwd: root });
     execFileSync("git", ["config", "user.email", "test@example.local"], { cwd: root });
     execFileSync("git", ["config", "user.name", "Test"], { cwd: root });
@@ -1394,7 +1394,7 @@ function listen(server: ReturnType<typeof createServer>): Promise<number> {
 
 describe("preview proxy", () => {
   it("proxies an authenticated preview by generated preview id", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-preview-"));
     const target = createServer((_req, res) => res.end("preview ok"));
     const targetPort = await listen(target);
 
@@ -1476,7 +1476,7 @@ Create `src/client/index.html` with:
   <head>
     <meta charset="UTF-8" />
     <meta name="viewport" content="width=device-width, initial-scale=1.0" />
-    <title>Remote Dev</title>
+    <title>Farbench</title>
   </head>
   <body>
     <div id="root"></div>
@@ -1561,7 +1561,7 @@ Create `src/client/layoutStore.ts` with:
 ```ts
 import type { BrowserLayout } from "../shared/types.js";
 
-const KEY = "remote-dev-layout";
+const KEY = "farbench-layout";
 
 export const defaultLayout: BrowserLayout = {
   selectedWorkspaceId: null,
@@ -1607,7 +1607,7 @@ export function Login({ onLogin }: { onLogin: () => void }) {
         setError("Invalid token");
       }
     }}>
-      <h1>Remote Dev</h1>
+      <h1>Farbench</h1>
       <label>
         Access token
         <input value={token} onChange={(event) => setToken(event.target.value)} type="password" />
@@ -2035,7 +2035,7 @@ npm run build
 npm run dev
 ```
 
-Expected: server prints `Remote Dev is running:` with a local URL. Stop it with `Ctrl-C` after the browser loads.
+Expected: server prints `Farbench is running:` with a local URL. Stop it with `Ctrl-C` after the browser loads.
 
 - [ ] **Step 7: Commit browser MVP panels**
 
@@ -2123,7 +2123,7 @@ git commit -m "test: cover remote dev mvp acceptance path"
 Create `README.md` with:
 
 ```md
-# Remote Development
+# Farbench
 
 Browser-first control plane for durable terminal coding-agent sessions on a trusted dev machine.
 
