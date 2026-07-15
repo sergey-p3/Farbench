@@ -23,7 +23,7 @@ export class TmuxManager {
 
   async create(rootPath: string, type: SessionType, codexPermissionLevel?: CodexPermissionLevel): Promise<string> {
     this.assertAvailable();
-    const tmuxName = `remote_dev_${nanoid(10)}`;
+    const tmuxName = `farbench_${nanoid(10)}`;
     await runTmux(["new-session", "-d", "-s", tmuxName, "-c", rootPath, terminalCommand(this.commandFor(type, codexPermissionLevel))], terminalEnvironment());
     await this.configureHistoryLimit(tmuxName);
     return tmuxName;

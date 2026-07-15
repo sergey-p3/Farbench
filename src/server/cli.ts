@@ -7,7 +7,7 @@ import { createApp } from "./http/createApp.js";
 async function main() {
   const [command, ...args] = process.argv.slice(2);
   if (command !== "serve") {
-    console.error("Usage: remote-dev serve [--host 127.0.0.1] [--port 3000] [--workspace .]");
+    console.error("Usage: farbench serve [--host 127.0.0.1] [--port 3000] [--workspace .]");
     process.exit(1);
   }
 
@@ -19,7 +19,7 @@ async function main() {
   server.listen(config.port, config.host, () => {
     const localUrl = `http://localhost:${config.port}`;
     const lan = config.host === "0.0.0.0" ? lanAddress() : null;
-    console.log("Remote Dev is running:");
+    console.log("Farbench is running:");
     console.log(`Workspace: ${workspace.name} (${workspace.rootPath})`);
     console.log(`Local: ${localUrl}`);
     if (lan) console.log(`LAN:   http://${lan}:${config.port}`);

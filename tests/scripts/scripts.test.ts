@@ -26,7 +26,7 @@ describe("project scripts", () => {
     expectedPort,
     expectedAuthToken
   ) => {
-    const tempRoot = mkdtempSync(join(tmpdir(), "remote-dev-script-"));
+    const tempRoot = mkdtempSync(join(tmpdir(), "farbench-script-"));
     const callerWorkspace = join(tempRoot, "caller-workspace");
     const binDir = join(tempRoot, "bin");
     const captureFile = join(tempRoot, "capture.txt");
@@ -67,7 +67,7 @@ describe("project scripts", () => {
         expect(args.slice(0, 10)).toEqual([
           "watch",
           "--exclude",
-          ".remote-dev",
+          ".farbench",
           "--exclude",
           "node_modules",
           "--exclude",
@@ -124,7 +124,7 @@ describe("project scripts", () => {
       expect(args.slice(0, 10)).toEqual([
         "watch",
         "--exclude",
-        ".remote-dev",
+        ".farbench",
         "--exclude",
         "node_modules",
         "--exclude",
@@ -167,7 +167,7 @@ describe("project scripts", () => {
 
       expect(existsSync(`/proc/${longRunning}`)).toBe(false);
       expect(readFileSync(join(runtimeDir, "dev.pid"), "utf8").trim()).toMatch(/^\d+$/);
-      expect(readEventually(fixture.captureFile)).toContain("watch\n--exclude\n.remote-dev");
+      expect(readEventually(fixture.captureFile)).toContain("watch\n--exclude\n.farbench");
     } finally {
       fixture.cleanup();
     }
@@ -203,7 +203,7 @@ function valueAfter(args: string[], flag: string): string {
 }
 
 function createScriptFixture() {
-  const tempRoot = mkdtempSync(join(tmpdir(), "remote-dev-script-"));
+  const tempRoot = mkdtempSync(join(tmpdir(), "farbench-script-"));
   const callerWorkspace = join(tempRoot, "caller-workspace");
   const binDir = join(tempRoot, "bin");
   const captureFile = join(tempRoot, "capture.txt");
@@ -227,7 +227,7 @@ function createScriptFixture() {
       return {
         ...process.env,
         PATH: `${binDir}:${process.env.PATH ?? ""}`,
-        REMOTE_DEV_RUN_DIR: runtimeDir,
+        FARBENCH_RUN_DIR: runtimeDir,
         TSX_BIN: join(binDir, "tsx"),
         SCRIPT_CAPTURE_FILE: captureFile
       };

@@ -28,7 +28,7 @@ export function Login({ onLogin }: LoginProps) {
   return (
     <main className="login-screen">
       <form className="login-panel" onSubmit={submit}>
-        <h1>Remote Dev</h1>
+        <h1>Farbench</h1>
         <label className="field">
           <span>Access token</span>
           <input

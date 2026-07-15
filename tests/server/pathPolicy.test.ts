@@ -13,21 +13,21 @@ afterEach(() => {
 
 describe("resolveWorkspacePath", () => {
   it("allows paths inside the workspace", () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-root-"));
     writeFileSync(join(root, "a.txt"), "hello");
 
     expect(resolveWorkspacePath(root, "a.txt").absolutePath).toBe(join(root, "a.txt"));
   });
 
   it("allows child names that start with dot dot characters", () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-root-"));
     writeFileSync(join(root, "..foo"), "hello");
 
     expect(resolveWorkspacePath(root, "..foo").absolutePath).toBe(join(root, "..foo"));
   });
 
   it("allows nested child paths with names that start with dot dot characters", () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-root-"));
     const directory = join(root, "..data");
     mkdirSync(directory);
     writeFileSync(join(directory, "file.txt"), "hello");
@@ -36,7 +36,7 @@ describe("resolveWorkspacePath", () => {
   });
 
   it("preserves the logical relative path for internal symlinks", () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-root-"));
     mkdirSync(join(root, "real"));
     writeFileSync(join(root, "real", "child.txt"), "hello");
     symlinkSync("real", join(root, "alias"));
@@ -48,14 +48,14 @@ describe("resolveWorkspacePath", () => {
   });
 
   it("blocks traversal outside the workspace", () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-root-"));
 
     expect(() => resolveWorkspacePath(root, "../secret.txt")).toThrow("Path escapes workspace");
   });
 
   it("blocks absolute paths outside the workspace", () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
-    const outside = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-root-"));
+    const outside = mkdtempSync(join(tmpdir(), "farbench-outside-"));
 
     expect(() => resolveWorkspacePath(root, join(outside, "secret.txt"))).toThrow("Path escapes workspace");
 
@@ -63,8 +63,8 @@ describe("resolveWorkspacePath", () => {
   });
 
   it("blocks symlinks that resolve outside the workspace", () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-root-"));
-    const outside = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-root-"));
+    const outside = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     writeFileSync(join(outside, "secret.txt"), "secret");
     symlinkSync(join(outside, "secret.txt"), join(root, "link.txt"));
 

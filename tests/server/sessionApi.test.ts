@@ -130,7 +130,7 @@ interface FakeDevClient {
 }
 
 async function startApp(devClient?: FakeDevClient) {
-  dir = mkdtempSync(join(tmpdir(), "remote-dev-session-api-"));
+  dir = mkdtempSync(join(tmpdir(), "farbench-session-api-"));
   const db = createDatabase(join(dir, "state.db"));
   const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
   const agent = new FakeAgent();

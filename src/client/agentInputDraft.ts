@@ -1,4 +1,4 @@
-const AGENT_INPUT_DRAFT_KEY_PREFIX = "remote-dev-agent-input-draft:";
+const AGENT_INPUT_DRAFT_KEY_PREFIX = "farbench-agent-input-draft:";
 
 type DraftStorage = Pick<Storage, "getItem" | "removeItem" | "setItem">;
 

@@ -18,7 +18,7 @@ is available.
 
 ## Deployment model
 
-Remote Development can read and modify files, run terminal processes, and expose
+Farbench can read and modify files, run terminal processes, and expose
 local HTTP services with the permissions of its host user. Treat it as privileged
 developer tooling:
 

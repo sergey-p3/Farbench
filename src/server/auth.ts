@@ -2,7 +2,7 @@ import type { NextFunction, Request, Response } from "express";
 import { parse, serialize } from "cookie";
 import { createHash, timingSafeEqual } from "node:crypto";
 
-const COOKIE_NAME = "remote_dev_session";
+const COOKIE_NAME = "farbench_session";
 
 export function tokenHash(token: string): string {
   return createHash("sha256").update(token).digest("hex");

@@ -1,6 +1,6 @@
 import { TERMINAL_HISTORY_CACHE_BYTES } from "../shared/terminalHistory.js";
 
-const CACHE_PREFIX = "remote-dev-terminal-scrollback:";
+const CACHE_PREFIX = "farbench-terminal-scrollback:";
 
 type ReadableStorage = Pick<Storage, "getItem" | "setItem">;
 type WritableStorage = Pick<Storage, "getItem" | "setItem" | "removeItem">;

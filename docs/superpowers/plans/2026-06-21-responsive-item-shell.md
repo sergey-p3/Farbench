@@ -364,7 +364,7 @@ function session(overrides: Partial<Session>): Session {
     workspaceId: "w1",
     name: "bash session",
     type: "bash",
-    tmuxName: "remote-dev-s1",
+    tmuxName: "farbench-s1",
     status: "running",
     createdAt: "2026-06-21T10:00:00.000Z",
     lastAttachedAt: null,
@@ -463,7 +463,7 @@ Replace the full contents of `src/client/layoutStore.ts` with:
 import type { BrowserLayout } from "../shared/types.js";
 import { defaultLayout, normalizeLayout } from "./itemLayout.js";
 
-const STORAGE_KEY = "remote-dev-layout";
+const STORAGE_KEY = "farbench-layout";
 
 export { defaultLayout, normalizeLayout };
 

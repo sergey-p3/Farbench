@@ -1,4 +1,4 @@
-# Remote Development MVP Architecture Design
+# Farbench MVP Architecture Design
 
 Date: 2026-06-20
 
@@ -13,13 +13,13 @@ For the first MVP, the user launches a self-hosted app from a dev machine. The a
 Example launch:
 
 ```bash
-remote-dev serve --host 0.0.0.0 --workspace ~/code/my-project
+farbench serve --host 0.0.0.0 --workspace ~/code/my-project
 ```
 
 Example output:
 
 ```text
-Remote Dev is running:
+Farbench is running:
 Local: http://localhost:3000
 LAN:   http://192.168.86.23:3000
 ```

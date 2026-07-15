@@ -73,7 +73,7 @@ afterEach(async () => {
 
 describe("manual preview proxy", () => {
   it("creates an authenticated preview and proxies requests to the stored local port", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-preview-"));
     let observedCookie: string | undefined;
     const target = http.createServer((_req, res) => {
       observedCookie = _req.headers.cookie;
@@ -131,7 +131,7 @@ describe("manual preview proxy", () => {
   });
 
   it("requires authentication for terminal websocket upgrades", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-preview-"));
     const db = createDatabase(join(dir, "state.db"));
     db.upsertWorkspace({ name: "demo", rootPath: dir });
     const config: ServerConfig = {
@@ -162,7 +162,7 @@ describe("manual preview proxy", () => {
   });
 
   it("leaves non-terminal websocket upgrades available for dev tooling", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-preview-"));
     const db = createDatabase(join(dir, "state.db"));
     db.upsertWorkspace({ name: "demo", rootPath: dir });
     const config: ServerConfig = {
@@ -211,7 +211,7 @@ describe("manual preview proxy", () => {
   });
 
   it("returns a stable bad gateway when the preview target is unavailable", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-preview-"));
     const deadTarget = http.createServer();
     const deadPort = await listen(deadTarget);
     await close(deadTarget);
@@ -252,7 +252,7 @@ describe("manual preview proxy", () => {
   });
 
   it("keeps common absolute HTML assets and redirects inside the preview prefix", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-preview-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-preview-"));
     const target = http.createServer((req, res) => {
       if (req.url === "/redirect") {
         res.statusCode = 302;

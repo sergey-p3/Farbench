@@ -75,7 +75,7 @@ Append these tests inside `describe("LocalAgent git integration", () => { ... })
 
 ```ts
   it("returns structured content for an unstaged tracked file", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -98,7 +98,7 @@ Append these tests inside `describe("LocalAgent git integration", () => { ... })
   });
 
   it("returns structured content for staged-only changes", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);
@@ -116,7 +116,7 @@ Append these tests inside `describe("LocalAgent git integration", () => { ... })
   });
 
   it("returns structured content for added and deleted files", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-git-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-git-"));
     git(["init"], dir);
     git(["config", "user.email", "dev@example.com"], dir);
     git(["config", "user.name", "Dev"], dir);

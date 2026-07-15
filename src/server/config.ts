@@ -66,7 +66,7 @@ export function parseServeArgs(argv: string[]): ServerConfig {
     throw new Error("--auth-token is required when binding to a non-loopback host");
   }
   const workspacePath = resolve(get("--workspace", "."));
-  const dataDir = resolve(get("--data-dir", `${homedir()}/.remote-dev`));
+  const dataDir = resolve(get("--data-dir", `${homedir()}/.farbench`));
   mkdirSync(dataDir, { recursive: true });
   return {
     host,

@@ -52,9 +52,9 @@ WORKSPACE="${WORKSPACE:-$CALLER_PWD}"
 AUTH_TOKEN="${AUTH_TOKEN:-dev-password}"
 DATA_DIR="${DATA_DIR:-}"
 WORKSPACE_NAME="${WORKSPACE_NAME:-$(random_workspace_name)}"
-REMOTE_DEV_RUN_DIR="${REMOTE_DEV_RUN_DIR:-$PWD/.remote-dev}"
-PID_FILE="$REMOTE_DEV_RUN_DIR/dev.pid"
-LOG_FILE="$REMOTE_DEV_RUN_DIR/dev.log"
+FARBENCH_RUN_DIR="${FARBENCH_RUN_DIR:-$PWD/.farbench}"
+PID_FILE="$FARBENCH_RUN_DIR/dev.pid"
+LOG_FILE="$FARBENCH_RUN_DIR/dev.log"
 TSX_BIN="${TSX_BIN:-$PWD/node_modules/.bin/tsx}"
 
 read_pid() {
@@ -111,12 +111,12 @@ dev_command() {
   fi
 
   args+=(--workspace-name "$WORKSPACE_NAME")
-  command=("$TSX_BIN" watch --exclude .remote-dev --exclude node_modules --exclude dist --exclude test-results src/server/cli.ts "${args[@]}")
+  command=("$TSX_BIN" watch --exclude .farbench --exclude node_modules --exclude dist --exclude test-results src/server/cli.ts "${args[@]}")
 }
 
 start_daemon() {
   local pid
-  mkdir -p "$REMOTE_DEV_RUN_DIR"
+  mkdir -p "$FARBENCH_RUN_DIR"
   pid="$(read_pid)"
   if is_running_pid "$pid"; then
     echo "Dev daemon is already running as pid $pid. Use --restart to replace it."
@@ -125,7 +125,7 @@ start_daemon() {
   rm -f "$PID_FILE"
 
   npm install
-  export REMOTE_DEV_VITE="${REMOTE_DEV_VITE:-1}"
+  export FARBENCH_VITE="${FARBENCH_VITE:-1}"
   dev_command
 
   setsid "${command[@]}" > "$LOG_FILE" 2>&1 < /dev/null &
@@ -152,7 +152,7 @@ case "$MODE" in
 esac
 
 npm install
-export REMOTE_DEV_VITE="${REMOTE_DEV_VITE:-1}"
+export FARBENCH_VITE="${FARBENCH_VITE:-1}"
 dev_command
 
 exec "${command[@]}"

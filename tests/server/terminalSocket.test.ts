@@ -36,7 +36,7 @@ afterEach(async () => {
 
 describe("terminal websocket", () => {
   it("routes terminal scroll requests to the attached tmux session", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-terminal-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_demo" });
@@ -74,7 +74,7 @@ describe("terminal websocket", () => {
   });
 
   it("forwards terminal input to the attached pty", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-terminal-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_demo" });
@@ -108,7 +108,7 @@ describe("terminal websocket", () => {
   });
 
   it("falls back to usable terminal dimensions when attach receives zero geometry", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-terminal-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_demo" });
@@ -142,7 +142,7 @@ describe("terminal websocket", () => {
   });
 
   it("attaches the live terminal without waiting for scrollback capture", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-terminal-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_demo" });
@@ -180,7 +180,7 @@ describe("terminal websocket", () => {
   });
 
   it("sends real history before the attached terminal redraw", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-terminal-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_demo" });
@@ -229,7 +229,7 @@ describe("terminal websocket", () => {
   });
 
   it("logs attach state when terminal debug logging is enabled", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-terminal-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_demo" });
@@ -307,7 +307,7 @@ describe("terminal websocket", () => {
   });
 
   it("caps replay scrollback before sending it to the browser", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-terminal-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_demo" });
@@ -341,7 +341,7 @@ describe("terminal websocket", () => {
   });
 
   it("strips codex alt-screen and mouse-tracking sequences from replay and live output while preserving live colors", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-terminal-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "codex", type: "codex", tmuxName: "rd_codex" });
@@ -381,7 +381,7 @@ describe("terminal websocket", () => {
   });
 
   it("strips bash alt-screen and mouse-tracking sequences so shell scrollback stays reachable while preserving live colors", async () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-terminal-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-terminal-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "bash", type: "bash", tmuxName: "rd_bash" });

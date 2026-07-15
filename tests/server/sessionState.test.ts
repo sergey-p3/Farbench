@@ -13,7 +13,7 @@ afterEach(() => {
 
 describe("metadata database", () => {
   it("stores active and closed sessions for reconnect/history views", () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-db-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "Codex", type: "codex", tmuxName: "rd_demo" });
@@ -28,7 +28,7 @@ describe("metadata database", () => {
   });
 
   it("does not mark terminal sessions as running when they are touched", () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-db-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "Codex", type: "codex", tmuxName: "rd_demo" });
@@ -43,7 +43,7 @@ describe("metadata database", () => {
   });
 
   it("does not revive terminal sessions through status updates", () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-db-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "Codex", type: "codex", tmuxName: "rd_demo" });
@@ -59,7 +59,7 @@ describe("metadata database", () => {
   });
 
   it("does not revive killed sessions through status updates", () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-db-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const session = db.createSession({ workspaceId: workspace.id, name: "Codex", type: "codex", tmuxName: "rd_demo" });
@@ -74,7 +74,7 @@ describe("metadata database", () => {
   });
 
   it("orders active sessions before closed history", () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-db-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
     const active = db.createSession({ workspaceId: workspace.id, name: "Active", type: "bash", tmuxName: "rd_active" });
@@ -88,7 +88,7 @@ describe("metadata database", () => {
   });
 
   it("persists audit events for later review", () => {
-    dir = mkdtempSync(join(tmpdir(), "remote-dev-db-"));
+    dir = mkdtempSync(join(tmpdir(), "farbench-db-"));
     const db = createDatabase(join(dir, "state.db"));
     const workspace = db.upsertWorkspace({ name: "demo", rootPath: dir });
 

@@ -115,7 +115,7 @@ describe("LocalAgent files", () => {
   }
 
   it("marks directories as not writable and files as writable when listing files", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     mkdirSync(join(root, "src"));
     writeFileSync(join(root, "note.txt"), "first");
     const agent = new LocalAgent();
@@ -129,7 +129,7 @@ describe("LocalAgent files", () => {
   });
 
   it("marks oversized files as not openable without reading the whole file", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     writeFileSync(join(root, "huge.txt"), "x".repeat(1_000_001));
     const agent = new LocalAgent();
 
@@ -142,7 +142,7 @@ describe("LocalAgent files", () => {
   });
 
   it("lists internal symlinks by link name while enforcing workspace boundaries", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     writeFileSync(join(root, "actual.txt"), "first");
     symlinkSync("actual.txt", join(root, "alias.txt"));
     const agent = new LocalAgent();
@@ -154,7 +154,7 @@ describe("LocalAgent files", () => {
   });
 
   it("lists symlink directory children under the requested logical path", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     mkdirSync(join(root, "real"));
     writeFileSync(join(root, "real", "child.txt"), "first");
     symlinkSync("real", join(root, "alias"));
@@ -168,7 +168,7 @@ describe("LocalAgent files", () => {
   });
 
   it("keeps internal symlink names in read and write responses", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     writeFileSync(join(root, "actual.txt"), "first");
     symlinkSync("actual.txt", join(root, "alias.txt"));
     const agent = new LocalAgent();
@@ -187,7 +187,7 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects an intervening write during save without overwriting it", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     const path = join(root, "note.txt");
     writeFileSync(path, "first");
     const agent = new RacingLocalAgent();
@@ -206,7 +206,7 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when the requested path is replaced during save", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     const path = join(root, "note.txt");
     const replacementPath = join(root, "replacement.txt");
     writeFileSync(path, "first");
@@ -228,8 +228,8 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when the checked path is swapped to an outside symlink before open", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
-    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     const path = join(root, "note.txt");
     const outsidePath = join(outsideRoot, "note.txt");
     writeFileSync(path, "first");
@@ -253,8 +253,8 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when a checked read path is swapped to an outside symlink", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
-    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     const path = join(root, "note.txt");
     const outsidePath = join(outsideRoot, "note.txt");
     writeFileSync(path, "first");
@@ -267,8 +267,8 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when an internal symlink read alias is swapped to an outside symlink", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
-    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     const actualPath = join(root, "actual.txt");
     const aliasPath = join(root, "alias.txt");
     const outsidePath = join(outsideRoot, "outside.txt");
@@ -283,8 +283,8 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when an internal symlink write alias is swapped to an outside symlink before mutation", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
-    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     const actualPath = join(root, "actual.txt");
     const aliasPath = join(root, "alias.txt");
     const outsidePath = join(outsideRoot, "outside.txt");
@@ -309,8 +309,8 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when a checked list child is swapped to an outside symlink", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
-    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     const path = join(root, "note.txt");
     const outsidePath = join(outsideRoot, "note.txt");
     writeFileSync(path, "first");
@@ -323,8 +323,8 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when the requested list directory is swapped to an outside symlink", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
-    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     const directory = join(root, "dir");
     const insideTarget = join(root, "actual.txt");
     const outsideDirectory = join(outsideRoot, "dir");
@@ -341,8 +341,8 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when an ancestor directory is swapped before read open", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
-    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     const directory = join(root, "dir");
     const outsideDirectory = join(outsideRoot, "dir");
     mkdirSync(directory);
@@ -357,8 +357,8 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when an ancestor directory is swapped before write open without mutating outside", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
-    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     const directory = join(root, "dir");
     const outsideDirectory = join(outsideRoot, "dir");
     mkdirSync(directory);
@@ -386,8 +386,8 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when an ancestor directory is swapped before directory enumeration", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
-    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     const directory = join(root, "dir");
     const outsideDirectory = join(outsideRoot, "dir");
     mkdirSync(directory);
@@ -402,8 +402,8 @@ describe("LocalAgent files", () => {
   });
 
   it("rejects when an ancestor directory is swapped before list child metadata open", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
-    outsideRoot = mkdtempSync(join(tmpdir(), "remote-dev-outside-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
+    outsideRoot = mkdtempSync(join(tmpdir(), "farbench-outside-"));
     const directory = join(root, "dir");
     const outsideDirectory = join(outsideRoot, "dir");
     mkdirSync(directory);
@@ -418,7 +418,7 @@ describe("LocalAgent files", () => {
   });
 
   it("serializes concurrent saves with the same expected version", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     const path = join(root, "note.txt");
     writeFileSync(path, "first");
     const agent = new LocalAgent();
@@ -450,7 +450,7 @@ describe("LocalAgent files", () => {
   });
 
   it("serializes concurrent saves through hard-link aliases", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     const firstPath = join(root, "a.txt");
     const secondPath = join(root, "b.txt");
     writeFileSync(firstPath, "first");
@@ -485,7 +485,7 @@ describe("LocalAgent files", () => {
   });
 
   it("marks invalid utf8 files as binary and rejects reading them", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     writeFileSync(join(root, "invalid.bin"), Buffer.from([0xc3, 0x28]));
     const agent = new LocalAgent();
 
@@ -496,7 +496,7 @@ describe("LocalAgent files", () => {
   });
 
   it("blocks save when file version changed after read", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     const path = join(root, "note.txt");
     writeFileSync(path, "first");
     const agent = new LocalAgent();
@@ -515,7 +515,7 @@ describe("LocalAgent files", () => {
   });
 
   it("blocks save when file is replaced with same content and mtime", async () => {
-    root = mkdtempSync(join(tmpdir(), "remote-dev-files-"));
+    root = mkdtempSync(join(tmpdir(), "farbench-files-"));
     const path = join(root, "note.txt");
     const replacementPath = join(root, "replacement.txt");
     writeFileSync(path, "first");

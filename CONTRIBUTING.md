@@ -1,6 +1,6 @@
 # Contributing
 
-Thank you for helping improve Remote Development. Bug reports, design feedback,
+Thank you for helping improve Farbench. Bug reports, design feedback,
 documentation fixes, and code contributions are welcome.
 
 ## Before you start
@@ -17,7 +17,7 @@ You need Node.js 22 or newer, npm, Git, and tmux. Then:
 
 ```sh
 git clone <your-fork-url>
-cd remote-development
+cd farbench
 npm ci
 ./scripts/dev.sh
 ```
