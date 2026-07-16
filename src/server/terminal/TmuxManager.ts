@@ -40,7 +40,7 @@ export class TmuxManager {
   }
 
   capture(tmuxName: string, historyOnly = false): Promise<string> {
-    const captureArgs = ["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`];
+    const captureArgs = ["capture-pane", "-p", "-J", "-S", `-${TERMINAL_HISTORY_LINES}`];
     if (historyOnly) captureArgs.push("-E", "-1");
     captureArgs.push("-t", tmuxName);
     return this.configureHistoryLimit(tmuxName).then(() =>

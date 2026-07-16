@@ -7,7 +7,7 @@ import {
   terminalSelectionContainsCell,
   terminalSelectedTextFromBuffer,
   terminalSelectArgsFromEndpoints,
-  terminalWordRangeAtCell,
+  terminalWordSelectionAtCell,
   type TerminalBufferCell,
   type TerminalSelectionHandleLayout,
 } from "../../terminalSelection.js";
@@ -83,13 +83,19 @@ export function useTerminalSelection({
       return false;
     }
 
-    const line = terminal.buffer.active.getLine(cell.row)?.translateToString(true) ?? "";
-    const range = terminalWordRangeAtCell(line, cell.column);
-    if (!range) {
+    const selection = terminalWordSelectionAtCell({
+      cell,
+      cols: terminal.cols,
+      getLine: (row) => {
+        const line = terminal.buffer.active.getLine(row);
+        return line ? { isWrapped: line.isWrapped, text: line.translateToString(true) } : null;
+      },
+    });
+    if (!selection) {
       terminal.clearSelection();
       return false;
     }
-    terminal.select(range.start, cell.row, range.length);
+    terminal.select(selection.column, selection.row, selection.length);
     updateSelectionHandles();
     return true;
   }, [cellFromPointer, terminalRef, updateSelectionHandles]);
