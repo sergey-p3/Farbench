@@ -6,6 +6,7 @@ import {
   terminalSelectArgsFromEndpoints,
   terminalSelectionContainsCell,
   terminalWordRangeAtCell,
+  terminalWordSelectionAtCell,
 } from "../../src/client/terminalSelection.js";
 
 describe("terminal selection helpers", () => {
@@ -49,6 +50,37 @@ describe("terminal selection helpers", () => {
 
   test("returns null for whitespace cells", () => {
     expect(terminalWordRangeAtCell("alpha beta", 5)).toBeNull();
+  });
+
+  test.each([
+    { column: 6, row: 0 },
+    { column: 4, row: 1 },
+    { column: 1, row: 2 },
+  ])("selects the whole word across wrapped buffer rows from $row:$column", (cell) => {
+    const lines = [
+      { isWrapped: false, text: "say superlon" },
+      { isWrapped: true, text: "gwordcontinu" },
+      { isWrapped: true, text: "es now" },
+    ];
+
+    expect(terminalWordSelectionAtCell({
+      cell,
+      cols: 12,
+      getLine: (row) => lines[row],
+    })).toEqual({ column: 4, row: 0, length: 22 });
+  });
+
+  test("does not extend a word across a real line break", () => {
+    const lines = [
+      { isWrapped: false, text: "longword" },
+      { isWrapped: false, text: "continues" },
+    ];
+
+    expect(terminalWordSelectionAtCell({
+      cell: { column: 2, row: 1 },
+      cols: 9,
+      getLine: (row) => lines[row],
+    })).toEqual({ column: 0, row: 1, length: 9 });
   });
 
   test("positions start and end handles against the visible selection", () => {

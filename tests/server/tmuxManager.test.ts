@@ -65,7 +65,7 @@ describe("TmuxManager", () => {
     );
     expect(spawnMock).toHaveBeenCalledWith(
       "tmux",
-      ["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`, "-t", "farbench_test"],
+      ["capture-pane", "-p", "-J", "-S", `-${TERMINAL_HISTORY_LINES}`, "-t", "farbench_test"],
       expect.any(Object),
     );
   });
@@ -78,7 +78,7 @@ describe("TmuxManager", () => {
 
     expect(spawnMock).toHaveBeenCalledWith(
       "tmux",
-      ["capture-pane", "-p", "-S", `-${TERMINAL_HISTORY_LINES}`, "-E", "-1", "-t", "farbench_test"],
+      ["capture-pane", "-p", "-J", "-S", `-${TERMINAL_HISTORY_LINES}`, "-E", "-1", "-t", "farbench_test"],
       expect.any(Object),
     );
   });

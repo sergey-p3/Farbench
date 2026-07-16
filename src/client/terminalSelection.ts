@@ -23,6 +23,12 @@ export interface TerminalWordRange {
   length: number;
 }
 
+export interface TerminalWordSelectionInput {
+  cell: TerminalBufferCell;
+  cols: number;
+  getLine: (row: number) => TerminalSelectedBufferLine | null | undefined;
+}
+
 export interface TerminalBufferCell {
   column: number;
   row: number;
@@ -105,6 +111,38 @@ export function terminalWordRangeAtCell(line: string, column: number): TerminalW
   }
 
   return { start, length: end - start };
+}
+
+export function terminalWordSelectionAtCell(input: TerminalWordSelectionInput): TerminalSelectArgs | null {
+  if (input.cols <= 0 || input.cell.row < 0) return null;
+
+  const line = input.getLine(input.cell.row);
+  const range = line ? terminalWordRangeAtCell(line.text, input.cell.column) : null;
+  if (!line || !range) return null;
+
+  let start: TerminalBufferCell = { column: range.start, row: input.cell.row };
+  let end: TerminalBufferCell = { column: range.start + range.length, row: input.cell.row };
+
+  while (start.column === 0) {
+    const currentLine = input.getLine(start.row);
+    const previousLine = input.getLine(start.row - 1);
+    if (!currentLine?.isWrapped || !previousLine || previousLine.text.length < input.cols) break;
+
+    const previousRange = terminalWordRangeAtCell(previousLine.text, input.cols - 1);
+    if (!previousRange || previousRange.start + previousRange.length !== input.cols) break;
+    start = { column: previousRange.start, row: start.row - 1 };
+  }
+
+  while (end.column === input.cols) {
+    const nextLine = input.getLine(end.row + 1);
+    if (!nextLine?.isWrapped) break;
+
+    const nextRange = terminalWordRangeAtCell(nextLine.text, 0);
+    if (!nextRange) break;
+    end = { column: nextRange.start + nextRange.length, row: end.row + 1 };
+  }
+
+  return terminalSelectArgsFromEndpoints({ cols: input.cols, end, start });
 }
 
 export function isTerminalWordCharacter(character: string): boolean {
