@@ -53,6 +53,10 @@ async function closeTopMenu(page: Page): Promise<void> {
 
 test("owner uses mobile focused item shell and restores last active item", async ({ page }, testInfo) => {
   const preview = await startPreviewServer();
+  const gitHistoryRequests: string[] = [];
+  page.on("request", (request) => {
+    if (new URL(request.url()).pathname.endsWith("/git/history")) gitHistoryRequests.push(request.url());
+  });
   testInfo.annotations.push({
     type: "tmux",
     description: "tmux-backed session startup is not exercised here because the app has no E2E cleanup path for durable tmux sessions.",
@@ -142,6 +146,15 @@ test("owner uses mobile focused item shell and restores last active item", async
     await expect(page.getByRole("heading", { level: 1, name: "Git diff" })).toBeVisible();
     await closeTopMenu(page);
     await expect(page.getByRole("button", { name: "Refresh" })).toBeVisible();
+    await expect(page.getByTitle("app.txt", { exact: true })).toBeVisible();
+    expect(gitHistoryRequests).toHaveLength(0);
+    await page.getByRole("group", { name: "File layout" }).getByRole("button", { name: "Tree" }).click();
+    await expect(page.getByRole("button", { name: "Tree" })).toHaveAttribute("aria-pressed", "true");
+    await expect(page.getByTitle("src/nested.txt", { exact: true })).toBeVisible();
+    await page.getByTitle("src", { exact: true }).click();
+    await expect(page.getByTitle("src/nested.txt", { exact: true })).toHaveCount(0);
+    await page.getByTitle("src", { exact: true }).click();
+    await expect(page.getByTitle("src/nested.txt", { exact: true })).toBeVisible();
     await page.getByTitle("app.txt", { exact: true }).click();
     await expect(page.getByRole("group", { name: "Diff view mode" })).toBeVisible();
     await expect(page.getByRole("button", { name: "Copy location" })).toBeVisible();

@@ -13,12 +13,15 @@ mkdirSync(workspace, { recursive: true });
 mkdirSync(dataDir, { recursive: true });
 mkdirSync(resolve(workspace, "src"), { recursive: true });
 
+const nestedPath = resolve(workspace, "src", "nested.txt");
+const nestedContent = Array.from(
+  { length: 120 },
+  (_, index) => `nested content line ${String(index + 1).padStart(3, "0")}`,
+).join("\n") + "\n";
+
 writeFileSync(resolve(workspace, "README.md"), "# E2E workspace\n\nInitial content.\n");
 writeFileSync(resolve(workspace, "app.txt"), "first line\noriginal line\n");
-writeFileSync(
-  resolve(workspace, "src", "nested.txt"),
-  Array.from({ length: 120 }, (_, index) => `nested content line ${String(index + 1).padStart(3, "0")}`).join("\n") + "\n",
-);
+writeFileSync(nestedPath, nestedContent);
 
 execFileSync("git", ["init"], { cwd: workspace, stdio: "ignore" });
 execFileSync("git", ["config", "user.email", "e2e@example.com"], { cwd: workspace, stdio: "ignore" });
@@ -27,3 +30,4 @@ execFileSync("git", ["add", "README.md", "app.txt", "src/nested.txt"], { cwd: wo
 execFileSync("git", ["commit", "-m", "initial"], { cwd: workspace, stdio: "ignore" });
 
 writeFileSync(resolve(workspace, "app.txt"), "first line\nchanged line\n");
+writeFileSync(nestedPath, `${nestedContent}changed nested line\n`);

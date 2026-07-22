@@ -77,6 +77,14 @@
     grid-template-rows: auto auto minmax(0, 1fr);
   }
 
+  .git-files-heading > strong {
+    flex-basis: 100%;
+  }
+
+  .git-files-heading-actions {
+    margin-left: 0;
+  }
+
   .git-view-tabs {
     padding-left: 5px;
     padding-right: 5px;

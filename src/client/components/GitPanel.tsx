@@ -19,7 +19,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
       <GitNavigation
         activeView={git.activeView}
         currentBranch={git.currentBranch}
-        isLoading={git.isLoading}
+        isLoading={git.isLoading || git.isLoadingHistory}
         onRefresh={() => void git.refreshCurrentView()}
         onSelect={git.setActiveView}
       />
@@ -31,6 +31,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
           changes={git.changes}
           diff={git.diff}
           diffViewerRef={git.diffViewerRef}
+          fileViewMode={git.fileViewMode}
           initialChangeDirection={git.initialChangeDirection}
           isLoading={git.isLoading}
           isLoadingDiff={git.isLoadingDiff}
@@ -38,6 +39,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
           onInitialChangeShown={() => git.setInitialChangeDirection(null)}
           onLoadDiff={(change) => void git.loadDiff(change)}
           onLoadFile={git.loadAdjacentFile}
+          onFileViewModeChange={git.setFileViewMode}
           onSetStaged={(change) => void git.setFileStaged(change)}
           onShowChange={git.showAdjacentChange}
           onShowWorkingTree={() => void git.showWorkingChanges()}
@@ -49,7 +51,7 @@ export function GitPanel({ workspace, onUnauthorized }: GitPanelProps) {
       {git.activeView === "history" ? (
         <GitHistoryView
           commits={git.commits}
-          isLoading={git.isLoading}
+          isLoading={git.isLoading || git.isLoadingHistory}
           onSelectCommit={(commit) => void git.selectHistoryCommit(commit)}
           onShowDetails={git.setDetailCommit}
         />

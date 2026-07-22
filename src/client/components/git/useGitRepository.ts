@@ -4,26 +4,30 @@ import { api } from "../../api.js";
 import { nextDiffFileIndex } from "../../gitDiffView.js";
 import { apiErrorMessage } from "../apiError.js";
 import type { GitDiffViewerHandle } from "../GitDiffViewer.js";
-import type { ChangeGroup, DisplayedChange, GitView } from "./gitPanelTypes.js";
+import type { ChangeGroup, DisplayedChange, GitFileViewMode, GitView } from "./gitPanelTypes.js";
 
 export function useGitRepository(workspace: Workspace | null, onUnauthorized?: () => void) {
   const workspaceIdRef = useRef<string | null>(workspace?.id ?? null);
   const selectedPathRef = useRef<string | null>(null);
   const diffViewerRef = useRef<GitDiffViewerHandle | null>(null);
   const repositoryRequestRef = useRef(0);
+  const historyRequestRef = useRef(0);
   const diffRequestRef = useRef(0);
   const [activeView, setActiveView] = useState<GitView>("files");
+  const [fileViewMode, setFileViewMode] = useState<GitFileViewMode>("list");
   const [changes, setChanges] = useState<DisplayedChange[]>([]);
   const [commits, setCommits] = useState<GitCommit[]>([]);
   const [branches, setBranches] = useState<GitBranch[]>([]);
   const [baseBranch, setBaseBranch] = useState("");
   const [currentBranch, setCurrentBranch] = useState("");
+  const [loadedHistoryBranch, setLoadedHistoryBranch] = useState<string | null>(null);
   const [selectedCommit, setSelectedCommit] = useState<GitCommit | null>(null);
   const [detailCommit, setDetailCommit] = useState<GitCommit | null>(null);
   const [selectedPath, setSelectedPath] = useState<string | null>(null);
   const [diff, setDiff] = useState<GitFileDiffResponse | null>(null);
   const [initialChangeDirection, setInitialChangeDirection] = useState<1 | -1 | null>(null);
   const [isLoading, setIsLoading] = useState(false);
+  const [isLoadingHistory, setIsLoadingHistory] = useState(false);
   const [isLoadingDiff, setIsLoadingDiff] = useState(false);
   const [busyPath, setBusyPath] = useState<string | null>(null);
   const [switchingBranch, setSwitchingBranch] = useState<string | null>(null);
@@ -34,8 +38,20 @@ export function useGitRepository(workspace: Workspace | null, onUnauthorized?: (
   }, [selectedPath]);
 
   useEffect(() => {
+    if (
+      activeView !== "history" ||
+      !workspace ||
+      workspaceIdRef.current !== workspace.id ||
+      !currentBranch ||
+      loadedHistoryBranch === currentBranch
+    ) return;
+    void loadHistory(workspace.id, currentBranch);
+  }, [activeView, workspace?.id, currentBranch, loadedHistoryBranch]);
+
+  useEffect(() => {
     workspaceIdRef.current = workspace?.id ?? null;
     repositoryRequestRef.current += 1;
+    historyRequestRef.current += 1;
     diffRequestRef.current += 1;
     setActiveView("files");
     setChanges([]);
@@ -43,10 +59,12 @@ export function useGitRepository(workspace: Workspace | null, onUnauthorized?: (
     setBranches([]);
     setBaseBranch("");
     setCurrentBranch("");
+    setLoadedHistoryBranch(null);
     setSelectedCommit(null);
     setDetailCommit(null);
     clearSelection();
     setIsLoading(false);
+    setIsLoadingHistory(false);
     setBusyPath(null);
     setSwitchingBranch(null);
     setError(null);
@@ -56,7 +74,11 @@ export function useGitRepository(workspace: Workspace | null, onUnauthorized?: (
   async function loadRepository(workspaceId = workspace?.id): Promise<void> {
     if (!workspaceId) return;
     const requestId = ++repositoryRequestRef.current;
+    historyRequestRef.current += 1;
     setIsLoading(true);
+    setIsLoadingHistory(false);
+    setLoadedHistoryBranch(null);
+    setCommits([]);
     setError(null);
     try {
       const [status, branchResponse] = await Promise.all([
@@ -69,17 +91,26 @@ export function useGitRepository(workspace: Workspace | null, onUnauthorized?: (
       setBranches(branchResponse.branches);
       setBaseBranch(branchResponse.baseBranch);
       setCurrentBranch(activeBranch);
-      if (activeBranch) {
-        const history = await api.gitHistory(workspaceId, activeBranch);
-        if (!isCurrentRepositoryRequest(workspaceId, requestId)) return;
-        setCommits(history.commits);
-      } else {
-        setCommits([]);
-      }
     } catch (error) {
       if (isCurrentRepositoryRequest(workspaceId, requestId)) showError(error, "Unable to load repository");
     } finally {
       if (isCurrentRepositoryRequest(workspaceId, requestId)) setIsLoading(false);
+    }
+  }
+
+  async function loadHistory(workspaceId: string, branch: string): Promise<void> {
+    const requestId = ++historyRequestRef.current;
+    setIsLoadingHistory(true);
+    setError(null);
+    try {
+      const history = await api.gitHistory(workspaceId, branch);
+      if (!isCurrentHistoryRequest(workspaceId, requestId)) return;
+      setCommits(history.commits);
+      setLoadedHistoryBranch(history.branch);
+    } catch (error) {
+      if (isCurrentHistoryRequest(workspaceId, requestId)) showError(error, "Unable to load Git history");
+    } finally {
+      if (isCurrentHistoryRequest(workspaceId, requestId)) setIsLoadingHistory(false);
     }
   }
 
@@ -96,8 +127,8 @@ export function useGitRepository(workspace: Workspace | null, onUnauthorized?: (
         if (workspaceIdRef.current === workspaceId) setChanges("files" in response ? response.files : response.changes);
       } else if (activeView === "history") {
         if (!currentBranch) return;
-        const history = await api.gitHistory(workspaceId, currentBranch);
-        if (workspaceIdRef.current === workspaceId) setCommits(history.commits);
+        await loadHistory(workspaceId, currentBranch);
+        return;
       } else {
         const response = await api.gitBranches(workspaceId);
         if (workspaceIdRef.current !== workspaceId) return;
@@ -235,6 +266,10 @@ export function useGitRepository(workspace: Workspace | null, onUnauthorized?: (
     return workspaceIdRef.current === workspaceId && selectedPathRef.current === path && diffRequestRef.current === requestId;
   }
 
+  function isCurrentHistoryRequest(workspaceId: string, requestId: number): boolean {
+    return workspaceIdRef.current === workspaceId && historyRequestRef.current === requestId;
+  }
+
   function showError(error: unknown, fallback: string): void {
     const message = apiErrorMessage(error, fallback, onUnauthorized);
     if (message) setError(message);
@@ -261,8 +296,10 @@ export function useGitRepository(workspace: Workspace | null, onUnauthorized?: (
     diff,
     diffViewerRef,
     error,
+    fileViewMode,
     initialChangeDirection,
     isLoading,
+    isLoadingHistory,
     isLoadingDiff,
     loadAdjacentFile,
     loadDiff,
@@ -273,6 +310,7 @@ export function useGitRepository(workspace: Workspace | null, onUnauthorized?: (
     selectedPath,
     setActiveView,
     setDetailCommit,
+    setFileViewMode,
     setFileStaged,
     setInitialChangeDirection,
     showAdjacentChange,

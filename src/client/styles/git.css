@@ -86,6 +86,22 @@
   padding: 5px 8px;
 }
 
+.git-files-heading {
+  flex-wrap: wrap;
+}
+
+.git-files-heading-actions {
+  align-items: center;
+  display: flex;
+  flex: 0 0 auto;
+  gap: 6px;
+  margin-left: auto;
+}
+
+.git-file-layout-toggle button {
+  min-width: 42px;
+}
+
 .git-back-button {
   display: none;
 }
@@ -153,6 +169,62 @@
   min-width: 22px;
   padding: 2px 6px;
   text-align: center;
+}
+
+.git-file-tree {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.git-tree-directory {
+  display: grid;
+  gap: 4px;
+  min-width: 0;
+}
+
+.git-tree-directory-button {
+  align-items: center;
+  background: transparent;
+  border: 0;
+  border-radius: 5px;
+  color: #34495b;
+  display: flex;
+  font-size: 0.78rem;
+  font-weight: 750;
+  gap: 4px;
+  min-height: 28px;
+  min-width: 0;
+  padding: 4px 6px;
+  text-align: left;
+  width: 100%;
+}
+
+.git-tree-directory-button:hover {
+  background: #f1f5f7;
+}
+
+.git-tree-directory-button > span:last-child {
+  overflow: hidden;
+  text-overflow: ellipsis;
+  white-space: nowrap;
+}
+
+.git-tree-chevron {
+  color: #687586;
+  flex: 0 0 12px;
+  font-size: 1rem;
+  line-height: 1;
+  text-align: center;
+}
+
+.git-tree-directory-children {
+  border-left: 1px solid #d7e0e6;
+  display: grid;
+  gap: 4px;
+  margin-left: 11px;
+  min-width: 0;
+  padding-left: 7px;
 }
 
 .git-file-row .file-button {
