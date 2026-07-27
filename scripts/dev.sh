@@ -68,8 +68,38 @@ is_running_pid() {
   [[ "$pid" =~ ^[0-9]+$ ]] && kill -0 "$pid" 2>/dev/null
 }
 
+is_daemon_process_group() {
+  local pid="$1"
+  local pgid
+  local sid
+  read -r pgid sid < <(ps -o pgid=,sid= -p "$pid" 2>/dev/null)
+  [[ "$pgid" == "$pid" && "$sid" == "$pid" ]]
+}
+
+signal_daemon() {
+  local pid="$1"
+  local signal="$2"
+  local process_group="$3"
+  if [[ "$process_group" == "true" ]]; then
+    kill "-$signal" -- "-$pid" 2>/dev/null
+  else
+    kill "-$signal" "$pid" 2>/dev/null
+  fi
+}
+
+is_daemon_target_running() {
+  local pid="$1"
+  local process_group="$2"
+  if [[ "$process_group" == "true" ]]; then
+    ps -o stat= -s "$pid" 2>/dev/null | awk '$1 !~ /^Z/ { found=1 } END { exit found ? 0 : 1 }'
+  else
+    is_running_pid "$pid"
+  fi
+}
+
 stop_daemon() {
   local pid
+  local process_group="false"
   pid="$(read_pid)"
 
   if [[ -z "$pid" ]]; then
@@ -84,9 +114,13 @@ stop_daemon() {
     return 0
   fi
 
-  kill "$pid"
+  if is_daemon_process_group "$pid"; then
+    process_group="true"
+  fi
+
+  signal_daemon "$pid" TERM "$process_group"
   for _ in {1..50}; do
-    if ! is_running_pid "$pid"; then
+    if ! is_daemon_target_running "$pid" "$process_group"; then
       rm -f "$PID_FILE"
       echo "Stopped dev daemon $pid."
       return 0
@@ -94,7 +128,7 @@ stop_daemon() {
     sleep 0.1
   done
 
-  kill -KILL "$pid" 2>/dev/null || true
+  signal_daemon "$pid" KILL "$process_group" || true
   rm -f "$PID_FILE"
   echo "Stopped dev daemon $pid."
 }

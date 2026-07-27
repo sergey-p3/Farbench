@@ -1,4 +1,4 @@
-import { execFileSync } from "node:child_process";
+import { execFileSync, spawn } from "node:child_process";
 import { existsSync, mkdirSync, mkdtempSync, readFileSync, rmSync, statSync, writeFileSync } from "node:fs";
 import { tmpdir } from "node:os";
 import { join } from "node:path";
@@ -194,6 +194,45 @@ describe("project scripts", () => {
       fixture.cleanup();
     }
   });
+
+  test("dev.sh --stop terminates the daemon's whole process group", () => {
+    const fixture = createScriptFixture();
+    const runtimeDir = join(fixture.tempRoot, "runtime");
+    const childPidFile = join(fixture.tempRoot, "child.pid");
+    mkdirSync(runtimeDir);
+    const daemon = spawn("bash", [
+      "-c",
+      'sleep 30 & printf "%s\\n" "$!" > "$1"; wait',
+      "daemon-fixture",
+      childPidFile,
+    ], {
+      detached: true,
+      stdio: "ignore",
+    });
+    if (!daemon.pid) throw new Error("Unable to start daemon fixture");
+    daemon.unref();
+    const daemonPid = daemon.pid;
+    const childPid = Number(readEventually(childPidFile).trim());
+    writeFileSync(join(runtimeDir, "dev.pid"), `${daemonPid}\n`);
+
+    try {
+      execFileSync(join(root, "scripts", "dev.sh"), ["--stop"], {
+        cwd: fixture.callerWorkspace,
+        env: fixture.env(runtimeDir, { npmFails: true }),
+        stdio: "pipe",
+      });
+
+      expect(processStopsEventually(daemonPid)).toBe(true);
+      expect(processStopsEventually(childPid)).toBe(true);
+    } finally {
+      try {
+        process.kill(-daemonPid, "SIGKILL");
+      } catch {
+        // The process group was already stopped as expected.
+      }
+      fixture.cleanup();
+    }
+  });
 });
 
 function valueAfter(args: string[], flag: string): string {
@@ -241,4 +280,21 @@ function readEventually(path: string): string {
     execFileSync("sleep", ["0.05"]);
   }
   return readFileSync(path, "utf8");
+}
+
+function processStopsEventually(pid: number): boolean {
+  for (let attempt = 0; attempt < 50; attempt++) {
+    if (!processIsRunning(pid)) return true;
+    execFileSync("sleep", ["0.05"]);
+  }
+  return !processIsRunning(pid);
+}
+
+function processIsRunning(pid: number): boolean {
+  try {
+    const stat = readFileSync(`/proc/${pid}/stat`, "utf8");
+    return !/^\d+ \(.+\) Z /.test(stat);
+  } catch {
+    return false;
+  }
 }
