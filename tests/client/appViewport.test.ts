@@ -4,23 +4,34 @@ import { installAppViewportHeightSync } from "../../src/client/appViewport.js";
 describe("app viewport sizing", () => {
   test("syncs the app viewport height from the visual viewport", () => {
     const target = new FakeViewportTarget();
-    const visualViewport = new FakeVisualViewport(520);
+    const visualViewport = new FakeVisualViewport(520, 0);
     const windowLike = new FakeWindow(844, visualViewport);
 
     const cleanup = installAppViewportHeightSync(windowLike, target);
 
     expect(target.style.getPropertyValue("--app-viewport-height")).toBe("520px");
+    expect(target.style.getPropertyValue("--app-viewport-offset-top")).toBe("0px");
 
     visualViewport.height = 500;
-    visualViewport.dispatch("resize");
+    visualViewport.offsetTop = 260;
+    visualViewport.dispatch("scroll");
 
     expect(target.style.getPropertyValue("--app-viewport-height")).toBe("500px");
+    expect(target.style.getPropertyValue("--app-viewport-offset-top")).toBe("260px");
+
+    visualViewport.height = 844;
+    visualViewport.offsetTop = 0;
+    visualViewport.dispatch("resize");
+
+    expect(target.style.getPropertyValue("--app-viewport-height")).toBe("844px");
+    expect(target.style.getPropertyValue("--app-viewport-offset-top")).toBe("0px");
 
     cleanup();
     visualViewport.height = 480;
     visualViewport.dispatch("resize");
 
-    expect(target.style.getPropertyValue("--app-viewport-height")).toBe("500px");
+    expect(target.style.getPropertyValue("--app-viewport-height")).toBe("844px");
+    expect(target.style.getPropertyValue("--app-viewport-offset-top")).toBe("0px");
   });
 
   test("falls back to innerHeight when visualViewport is unavailable", () => {
@@ -30,13 +41,14 @@ describe("app viewport sizing", () => {
     installAppViewportHeightSync(windowLike, target);
 
     expect(target.style.getPropertyValue("--app-viewport-height")).toBe("844px");
+    expect(target.style.getPropertyValue("--app-viewport-offset-top")).toBe("0px");
   });
 });
 
 class FakeVisualViewport {
   readonly listeners = new Map<string, Set<() => void>>();
 
-  constructor(public height: number) {}
+  constructor(public height: number, public offsetTop: number) {}
 
   addEventListener(type: string, listener: () => void) {
     this.listeners.set(type, (this.listeners.get(type) ?? new Set()).add(listener));

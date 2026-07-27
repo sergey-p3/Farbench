@@ -2,27 +2,31 @@ import type { Workspace, WorkspaceItem } from "../../../shared/types.js";
 
 export function WorkspaceTopBar({
   active,
+  agentViewMode,
   isExpanded,
   isPinned,
   onCreate,
   onOpenAgentInput,
   onOpenSwitcher,
   onToggle,
+  onToggleAgentView,
   onTogglePin,
   workspace,
 }: {
   active: WorkspaceItem | null;
+  agentViewMode: "rich" | "terminal";
   isExpanded: boolean;
   isPinned: boolean;
   onCreate: () => void;
   onOpenAgentInput: () => void;
   onOpenSwitcher: () => void;
   onToggle: () => void;
+  onToggleAgentView: () => void;
   onTogglePin: () => void;
   workspace: Workspace | null;
 }) {
   return (
-    <header className={`top-bar shell-top-bar ${active?.kind === "agent" && active.sessionId ? "agent-input-available" : ""} ${isExpanded ? "top-menu-expanded" : "top-menu-collapsed"}`}>
+    <header className={`top-bar shell-top-bar ${active?.kind === "agent" && active.sessionId ? (agentViewMode === "terminal" ? "agent-input-available" : "agent-view-available") : ""} ${isExpanded ? "top-menu-expanded" : "top-menu-collapsed"}`}>
       {isExpanded ? (
         <>
           <button className="icon-button" aria-label="Open item switcher" onClick={onOpenSwitcher} type="button">⇄</button>
@@ -32,6 +36,16 @@ export function WorkspaceTopBar({
           </div>
           <span className="session-chip">{active ? `${active.kind} · ${active.status}` : "Empty"}</span>
           {active?.kind === "agent" && active.sessionId ? (
+            <button
+              aria-label={agentViewMode === "terminal" ? "Use rich text agent view" : "Use terminal agent view"}
+              aria-pressed={agentViewMode === "rich"}
+              className="icon-button"
+              onClick={onToggleAgentView}
+              title={agentViewMode === "terminal" ? "Use rich text agent view" : "Use terminal agent view"}
+              type="button"
+            >{agentViewMode === "terminal" ? "▤" : ">_"}</button>
+          ) : null}
+          {active?.kind === "agent" && active.sessionId && agentViewMode === "terminal" ? (
             <button
               aria-label="Compose agent input"
               className="icon-button"

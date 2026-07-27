@@ -1,6 +1,7 @@
 import { useEffect, useMemo, useRef, useState } from "react";
 import type { CodexPermissionLevel, SessionType, Workspace, WorkspaceItem } from "../../../shared/types.js";
 import { api } from "../../api.js";
+import { loadAgentViewMode, saveAgentViewMode } from "../../agentViewPreferences.js";
 import {
   MAIN_PANE_ID,
   activeItem,
@@ -25,6 +26,7 @@ export function useWorkspaceShell(onUnauthorized: () => void) {
   const [isTopMenuPinned, setIsTopMenuPinned] = useState(false);
   const [isShortcutRailOpen, setIsShortcutRailOpen] = useState(true);
   const [agentComposerSessionId, setAgentComposerSessionId] = useState<string | null>(null);
+  const [agentViewMode, setAgentViewMode] = useState(loadAgentViewMode);
   const requestRef = useRef(0);
   const selectedWorkspaceIdRef = useRef(layout.selectedWorkspaceId);
 
@@ -179,12 +181,23 @@ export function useWorkspaceShell(onUnauthorized: () => void) {
     collapseUnpinnedTopMenu();
   }
 
+  function toggleAgentViewMode(): void {
+    if (active?.kind !== "agent") return;
+    setAgentViewMode((current) => {
+      const next = current === "terminal" ? "rich" : "terminal";
+      saveAgentViewMode(next);
+      return next;
+    });
+    collapseUnpinnedTopMenu();
+  }
+
   function closeAgentComposer(sessionId: string): void {
     setAgentComposerSessionId((current) => current === sessionId ? null : current);
   }
 
   return {
     active,
+    agentViewMode,
     agentComposerSessionId,
     closeItem,
     createBrowserItem,
@@ -208,6 +221,7 @@ export function useWorkspaceShell(onUnauthorized: () => void) {
     setIsSwitcherOpen,
     toggleTopMenu,
     toggleTopMenuPin,
+    toggleAgentViewMode,
     visibleItems,
     workspaces,
   };

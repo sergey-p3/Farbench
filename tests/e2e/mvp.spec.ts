@@ -1320,6 +1320,261 @@ test("agent input composer restores drafts and clears them after terminal submis
   await expect(dialog).toHaveCount(0);
 });
 
+test("agent switches between terminal and rich text input modes", async ({ page }) => {
+  await setupAgentInputComposerFixture(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+
+  await openTopMenu(page);
+  await page.getByRole("button", { name: "Use rich text agent view" }).click();
+
+  const richView = page.getByRole("region", { name: "Rich text agent view" });
+  await expect(richView).toBeVisible();
+  await page.reload();
+  await expect(richView).toBeVisible();
+  await expect(page.getByRole("log", { name: "Agent output" })).toContainText("agent ready");
+
+  const messageInput = page.getByRole("textbox", { name: "Agent message" });
+  await messageInput.fill("Run the focused tests.");
+  await messageInput.press("Control+Enter");
+  await expect.poll(async () => page.evaluate(() => {
+    const messages = Reflect.get(window, "__agentComposerSentMessages") as string[];
+    return messages
+      .map((message) => JSON.parse(message) as { type: string; data?: string })
+      .filter((message) => message.type === "input")
+      .map((message) => message.data);
+  })).toContain("Run the focused tests.\r");
+
+  await page.getByRole("button", { name: "Switch to keystroke input" }).click();
+
+  const keystrokeInput = page.getByRole("textbox", { name: "Agent keystroke input" });
+  await expect(keystrokeInput).toBeFocused();
+  await keystrokeInput.press("x");
+  await keystrokeInput.press("Enter");
+  await expect.poll(async () => page.evaluate(() => {
+    const messages = Reflect.get(window, "__agentComposerSentMessages") as string[];
+    return messages
+      .map((message) => JSON.parse(message) as { type: string; data?: string })
+      .filter((message) => message.type === "input")
+      .map((message) => message.data);
+  })).toEqual(expect.arrayContaining(["x", "\r"]));
+
+  await openTopMenu(page);
+  await expect(page.getByRole("button", { name: "Compose agent input" })).toHaveCount(0);
+  await page.getByRole("button", { name: "Use terminal agent view" }).click();
+  await expect(richView).toHaveCount(0);
+  await expect(page.locator(".terminal-host .xterm")).toBeVisible();
+});
+
+test("rich agent log mode appends sanitized terminal output", { tag: "@critical" }, async ({ page }) => {
+  await setupAgentInputComposerFixture(page);
+  await page.setViewportSize({ width: 390, height: 844 });
+  await page.goto("/");
+
+  await openTopMenu(page);
+  await page.getByRole("button", { name: "Use rich text agent view" }).click();
+  const outputModes = page.getByRole("group", { name: "Agent output mode" });
+  const screenMode = outputModes.getByRole("button", { name: "Screen" });
+  const logMode = outputModes.getByRole("button", { name: "Log" });
+  await expect(screenMode).toHaveAttribute("aria-pressed", "true");
+  await logMode.click();
+  await page.reload();
+  await expect(logMode).toHaveAttribute("aria-pressed", "true");
+
+  await page.evaluate(() => {
+    const sendOutput = Reflect.get(window, "__sendAgentComposerOutput") as (data: string) => void;
+    sendOutput("phase 1\r\x1b[3");
+    sendOutput("2mphase 2\x1b[0m\r\n");
+    sendOutput("done");
+  });
+
+  const output = page.getByRole("log", { name: "Agent output" });
+  await expect(output).toContainText("agent ready");
+  await expect(output).toContainText("phase 1");
+  await expect(output).toContainText("phase 2");
+  await expect(output).toContainText("done");
+  const logText = await output.textContent();
+  expect(logText).not.toContain("[32m");
+  expect(logText?.indexOf("phase 1")).toBeLessThan(logText?.indexOf("phase 2") ?? -1);
+  expect(logText?.indexOf("phase 2")).toBeLessThan(logText?.indexOf("done") ?? -1);
+
+  await page.evaluate(() => {
+    const sendOutput = Reflect.get(window, "__sendAgentComposerOutput") as (data: string) => void;
+    sendOutput(`${Array.from({ length: 200 }, (_value, index) => `history line ${index}`).join("\r\n")}\r\n`);
+  });
+  await expect(output).toContainText("history line 199");
+  const stopFollowingOutput = page.getByRole("button", { name: "Stop following output" });
+  await expect(stopFollowingOutput).toBeVisible();
+  await expect.poll(() => output.evaluate((element) => (
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  ))).toBeLessThanOrEqual(1);
+
+  const buttonPausedScrollTop = await output.evaluate((element) => element.scrollTop);
+  await stopFollowingOutput.click();
+  const followOutput = page.getByRole("button", { name: "Follow output" });
+  await expect(followOutput).toBeVisible();
+  await page.evaluate(() => {
+    const sendOutput = Reflect.get(window, "__sendAgentComposerOutput") as (data: string) => void;
+    sendOutput("paused with follow button\r\n");
+  });
+  await expect(output).toContainText("paused with follow button");
+  await expect.poll(() => output.evaluate((element) => element.scrollTop)).toBe(buttonPausedScrollTop);
+
+  await followOutput.click();
+  await expect(stopFollowingOutput).toBeVisible();
+  await output.dispatchEvent("pointerdown", {
+    button: 0,
+    pointerId: 1,
+    pointerType: "touch",
+  });
+  const preservedScrollTop = await output.evaluate((element) => {
+    element.scrollTop = Math.floor((element.scrollHeight - element.clientHeight) / 2);
+    return element.scrollTop;
+  });
+  expect(preservedScrollTop).toBeGreaterThan(0);
+  await expect(followOutput).toBeVisible();
+
+  await page.evaluate(() => {
+    const sendOutput = Reflect.get(window, "__sendAgentComposerOutput") as (data: string) => void;
+    sendOutput("appended at bottom\r\n");
+  });
+  await expect(output).toContainText("appended at bottom");
+  await expect.poll(() => output.evaluate((element) => element.scrollTop)).toBe(preservedScrollTop);
+
+  await page.evaluate(() => {
+    const sendScrollback = Reflect.get(window, "__sendAgentComposerScrollback") as (data: string) => void;
+    sendScrollback("history line 199\r\nappended at bottom\r\nreplayed missed output\r\n");
+  });
+  await expect(output).toContainText("replayed missed output");
+  await expect(output).toContainText("phase 1");
+  await expect.poll(() => output.evaluate((element) => element.scrollTop)).toBe(preservedScrollTop);
+
+  await output.evaluate((element) => {
+    element.scrollTop = element.scrollHeight;
+  });
+  await expect(stopFollowingOutput).toBeVisible();
+  await expect.poll(() => output.evaluate((element) => element.scrollTop)).toBeGreaterThan(preservedScrollTop);
+  await page.evaluate(() => {
+    const sendOutput = Reflect.get(window, "__sendAgentComposerOutput") as (data: string) => void;
+    sendOutput("followed output\r\n");
+  });
+  await expect(output).toContainText("followed output");
+  await expect.poll(() => output.evaluate((element) => (
+    element.scrollHeight - element.clientHeight - element.scrollTop
+  ))).toBeLessThanOrEqual(1);
+
+  await screenMode.click();
+  await logMode.click();
+  await expect(output).toContainText("phase 1");
+  const attachCount = await page.evaluate(() => {
+    const messages = Reflect.get(window, "__agentComposerSentMessages") as string[];
+    return messages.filter((message) => (JSON.parse(message) as { type?: string }).type === "attach").length;
+  });
+  expect(attachCount).toBe(1);
+
+  await page.getByRole("textbox", { name: "Agent message" }).fill("Continue from the log.");
+  await page.getByRole("button", { name: "Send agent message" }).click();
+  await expect.poll(async () => page.evaluate(() => {
+    const messages = Reflect.get(window, "__agentComposerSentMessages") as string[];
+    return messages
+      .map((message) => JSON.parse(message) as { type: string; data?: string })
+      .filter((message) => message.type === "input")
+      .map((message) => message.data);
+  })).toContain("Continue from the log.\r");
+});
+
+test("rich agent input follows the shifted iPhone visual viewport", { tag: "@critical" }, async ({ page }) => {
+  await page.setViewportSize({ width: 375, height: 844 });
+  await page.addInitScript(() => {
+    class ControlledVisualViewport extends EventTarget {
+      height = 844;
+      offsetTop = 0;
+    }
+
+    const viewport = new ControlledVisualViewport();
+    Object.defineProperty(window, "visualViewport", { configurable: true, value: viewport });
+    Object.defineProperty(navigator, "maxTouchPoints", { configurable: true, value: 5 });
+    Object.defineProperty(navigator, "userAgent", {
+      configurable: true,
+      value: "Mozilla/5.0 (iPhone; CPU iPhone OS 18_0 like Mac OS X) AppleWebKit/605.1.15 Mobile/15E148 Safari/604.1",
+    });
+    Reflect.set(window, "__setVisualViewport", (height: number, offsetTop: number) => {
+      viewport.height = height;
+      viewport.offsetTop = offsetTop;
+      viewport.dispatchEvent(new Event("resize"));
+      viewport.dispatchEvent(new Event("scroll"));
+    });
+  });
+  await setupAgentInputComposerFixture(page);
+  await page.goto("/");
+
+  await openTopMenu(page);
+  const expandedMenuBox = await page.locator(".shell-top-bar").boundingBox();
+  expect(expandedMenuBox).not.toBeNull();
+  if (!expandedMenuBox) throw new Error("Top menu not found");
+  expect(expandedMenuBox.x).toBeGreaterThanOrEqual(0);
+  expect(Math.ceil(expandedMenuBox.x + expandedMenuBox.width)).toBeLessThanOrEqual(375);
+  await page.getByRole("button", { name: "Use rich text agent view" }).click();
+  const agentMessage = page.getByRole("textbox", { name: "Agent message" });
+  await agentMessage.click();
+  const inputFontSize = await agentMessage.evaluate((element) => Number.parseFloat(getComputedStyle(element).fontSize));
+  expect(inputFontSize).toBeGreaterThanOrEqual(16);
+  await page.evaluate(() => {
+    const setVisualViewport = Reflect.get(window, "__setVisualViewport") as (height: number, offsetTop: number) => void;
+    setVisualViewport(500, 200);
+  });
+
+  await expect.poll(() => page.evaluate(() => ({
+    height: getComputedStyle(document.documentElement).getPropertyValue("--app-viewport-height").trim(),
+    offsetTop: getComputedStyle(document.documentElement).getPropertyValue("--app-viewport-offset-top").trim(),
+  }))).toEqual({ height: "500px", offsetTop: "200px" });
+
+  const keyboardOpen = await page.evaluate(() => {
+    const pane = document.querySelector(".terminal-pane");
+    const richView = document.querySelector(".rich-agent-view");
+    const shortcutRail = document.querySelector(".tab-shortcut-rail");
+    if (!(pane instanceof HTMLElement) || !(richView instanceof HTMLElement) || !(shortcutRail instanceof HTMLElement)) {
+      throw new Error("Rich agent layout not found");
+    }
+    const bodyBox = document.body.getBoundingClientRect();
+    const paneBox = pane.getBoundingClientRect();
+    const richViewBox = richView.getBoundingClientRect();
+    const shortcutRailBox = shortcutRail.getBoundingClientRect();
+    return {
+      bodyBottom: bodyBox.bottom,
+      bodyTop: bodyBox.top,
+      paneBottom: paneBox.bottom,
+      panePaddingBottom: getComputedStyle(pane).paddingBottom,
+      richViewBottom: richViewBox.bottom,
+      rootScrollWidth: document.documentElement.scrollWidth,
+      shortcutRailRight: shortcutRailBox.right,
+      scrollY: window.scrollY,
+    };
+  });
+
+  expect(Math.round(keyboardOpen.bodyTop)).toBe(200);
+  expect(Math.round(keyboardOpen.bodyBottom)).toBe(700);
+  expect(Math.round(keyboardOpen.paneBottom)).toBe(700);
+  expect(Math.round(keyboardOpen.richViewBottom)).toBe(700);
+  expect(Math.ceil(keyboardOpen.shortcutRailRight)).toBeLessThanOrEqual(375);
+  expect(keyboardOpen.rootScrollWidth).toBeLessThanOrEqual(375);
+  expect(keyboardOpen.panePaddingBottom).toBe("0px");
+  expect(keyboardOpen.scrollY).toBe(0);
+
+  await page.evaluate(() => {
+    const setVisualViewport = Reflect.get(window, "__setVisualViewport") as (height: number, offsetTop: number) => void;
+    setVisualViewport(844, 0);
+  });
+  await expect.poll(() => page.evaluate(() => {
+    const richView = document.querySelector(".rich-agent-view");
+    if (!(richView instanceof HTMLElement)) return null;
+    return {
+      bodyTop: Math.round(document.body.getBoundingClientRect().top),
+      richViewBottom: Math.round(richView.getBoundingClientRect().bottom),
+    };
+  })).toEqual({ bodyTop: 0, richViewBottom: 844 });
+});
+
 async function setupConnectionStatusFixture(page: Page, session: Session): Promise<void> {
   await page.route("**/api/workspaces", async (route) => {
     await route.fulfill({
@@ -1490,6 +1745,7 @@ async function setupAgentInputComposerFixture(page: Page): Promise<void> {
     }));
 
     const sentMessages: string[] = [];
+    const sockets: AgentComposerSocket[] = [];
     class AgentComposerSocket extends EventTarget {
       static readonly CONNECTING = 0;
       static readonly OPEN = 1;
@@ -1511,6 +1767,7 @@ async function setupAgentInputComposerFixture(page: Page): Promise<void> {
 
       constructor(readonly url: string) {
         super();
+        sockets.push(this);
         setTimeout(() => {
           this.readyState = AgentComposerSocket.OPEN;
           const event = new Event("open");
@@ -1542,5 +1799,25 @@ async function setupAgentInputComposerFixture(page: Page): Promise<void> {
 
     Reflect.set(window, "WebSocket", AgentComposerSocket);
     Reflect.set(window, "__agentComposerSentMessages", sentMessages);
+    Reflect.set(window, "__sendAgentComposerOutput", (data: string) => {
+      for (const socket of sockets) {
+        if (socket.readyState !== AgentComposerSocket.OPEN) continue;
+        const event = new MessageEvent("message", {
+          data: JSON.stringify({ type: "output", data }),
+        });
+        socket.dispatchEvent(event);
+        socket.onmessage?.(event);
+      }
+    });
+    Reflect.set(window, "__sendAgentComposerScrollback", (data: string) => {
+      for (const socket of sockets) {
+        if (socket.readyState !== AgentComposerSocket.OPEN) continue;
+        const event = new MessageEvent("message", {
+          data: JSON.stringify({ type: "scrollback", data }),
+        });
+        socket.dispatchEvent(event);
+        socket.onmessage?.(event);
+      }
+    });
   }, sessions);
 }

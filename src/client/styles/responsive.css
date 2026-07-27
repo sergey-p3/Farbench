@@ -16,6 +16,10 @@
     max-height: calc(var(--terminal-visual-height) - 58px);
   }
 
+  .terminal-pane.rich-agent-pane {
+    max-height: 100%;
+  }
+
   .tab-shortcut-rail {
     max-height: calc(var(--app-viewport-height) - 70px);
     right: 6px;

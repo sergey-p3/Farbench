@@ -59,6 +59,8 @@ interface TerminalSessionActions {
 
 interface UseTerminalSessionOptions {
   actions: TerminalSessionActions;
+  onTerminalData?: (data: string, behavior: "append" | "replace") => void;
+  onTerminalRender?: (terminal: Terminal) => void;
   onUnauthorized?: () => void;
   refs: TerminalSessionRefs;
   retryNonce: number;
@@ -72,6 +74,8 @@ interface UseTerminalSessionOptions {
 /** Owns xterm, WebSocket, resize, scroll, reconnect, and disposal lifecycle. */
 export function useTerminalSession({
   actions,
+  onTerminalData,
+  onTerminalRender,
   onUnauthorized,
   refs,
   retryNonce,
@@ -145,6 +149,7 @@ export function useTerminalSession({
     let deferredFitAndResizeTimer: number | null = null;
     let reconnectScheduled = false;
     let reconnectTimer: number | null = null;
+    let terminalRenderFrame: number | null = null;
 
     terminalDebugRef.current = debug;
     terminalRef.current = terminal;
@@ -192,6 +197,18 @@ export function useTerminalSession({
     const fitAndResize = () => {
       fit();
       sendResize();
+    };
+
+    const scheduleTerminalRender = () => {
+      if (!onTerminalRender || terminalRenderFrame !== null) return;
+      terminalRenderFrame = window.requestAnimationFrame(() => {
+        terminalRenderFrame = null;
+        if (isCurrentSocket()) onTerminalRender(terminal);
+      });
+    };
+
+    const renderAfterWrites = () => {
+      void writeQueue.flush().then(scheduleTerminalRender);
     };
 
     const clearDeferredFitAndResize = () => {
@@ -450,27 +467,37 @@ export function useTerminalSession({
         autoReconnectAttemptsRef.current = 0;
         setConnectionPhase(null);
         receivedScrollbackRef.current = true;
+        onTerminalData?.(message.data, "replace");
         writeQueue.replace(terminalHistoryReplay(message.data, terminal.rows));
+        renderAfterWrites();
         debug("scrollback.applied", { bytes: message.data.length });
         return;
       }
       if (message.type === "output") {
         autoReconnectAttemptsRef.current = 0;
         setConnectionPhase(null);
+        onTerminalData?.(message.data, "append");
         writeQueue.write(message.data);
+        renderAfterWrites();
         return;
       }
       if (message.type === "error") {
         setConnectionPhase(null);
         setStatus(message.error);
-        writeQueue.write(`\r\n${message.error}\r\n`);
+        const errorOutput = `\r\n${message.error}\r\n`;
+        onTerminalData?.(errorOutput, "append");
+        writeQueue.write(errorOutput);
+        renderAfterWrites();
         debug("terminal.error", { error: message.error });
         return;
       }
 
       setConnectionPhase(null);
       setStatus("Terminal exited.");
-      writeQueue.write("\r\nTerminal exited.\r\n");
+      const exitOutput = "\r\nTerminal exited.\r\n";
+      onTerminalData?.(exitOutput, "append");
+      writeQueue.write(exitOutput);
+      renderAfterWrites();
       debug("terminal.exit");
     });
 
@@ -560,6 +587,7 @@ export function useTerminalSession({
       clearConnectTimeout();
       clearReconnectTimer();
       clearDeferredFitAndResize();
+      if (terminalRenderFrame !== null) window.cancelAnimationFrame(terminalRenderFrame);
       resizeObserver.disconnect();
       touchMomentum.cancel();
       pointerMomentum.cancel();
@@ -600,6 +628,8 @@ export function useTerminalSession({
     clearArrowGesture,
     clearLongPress,
     focusTerminal,
+    onTerminalData,
+    onTerminalRender,
     onUnauthorized,
     releaseArrowGesture,
     restoreArrowGestureScrollPosition,

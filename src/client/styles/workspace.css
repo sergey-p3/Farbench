@@ -34,6 +34,10 @@
 }
 
 .shell-top-bar.agent-input-available {
+  grid-template-columns: auto minmax(0, 1fr) auto auto auto auto auto auto;
+}
+
+.shell-top-bar.agent-view-available {
   grid-template-columns: auto minmax(0, 1fr) auto auto auto auto auto;
 }
 

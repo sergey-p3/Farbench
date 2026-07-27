@@ -7,11 +7,20 @@ import {
   loadAgentInputDraft,
   saveAgentInputDraft,
 } from "../agentInputDraft.js";
+import {
+  loadRichAgentOutputMode,
+  saveRichAgentOutputMode,
+  type RichAgentOutputMode,
+} from "../agentViewPreferences.js";
 import type { TerminalDebugLogger } from "../terminalDebug.js";
+import type { RichAgentInputMode } from "../richAgentInput.js";
+import { richTerminalOutput, type RichTerminalOutput } from "../richTerminalOutput.js";
+import { createTerminalLogCollector } from "../terminalLog.js";
 import {
   AgentInputComposer,
   type AgentInputComposerMode,
 } from "./terminal/AgentInputComposer.js";
+import { RichAgentView } from "./terminal/RichAgentView.js";
 import {
   EmptyTerminalPane,
   TerminalActionMenu,
@@ -33,6 +42,7 @@ import { useTerminalSelection } from "./terminal/useTerminalSelection.js";
 import { useTerminalSession } from "./terminal/useTerminalSession.js";
 
 interface TerminalPaneProps {
+  agentViewMode?: "rich" | "terminal";
   sessionId: string | null;
   displayKind?: "terminal" | "agent";
   isAgentComposerRequested?: boolean;
@@ -46,6 +56,7 @@ const ACTION_MENU_WIDTH_PX = 168;
 export { terminalSocketUrl };
 
 export function TerminalPane({
+  agentViewMode = "terminal",
   sessionId,
   displayKind = "terminal",
   isAgentComposerRequested = false,
@@ -58,6 +69,7 @@ export function TerminalPane({
   const containerRef = useRef<HTMLDivElement | null>(null);
   const actionMenuRef = useRef<HTMLDivElement | null>(null);
   const agentInputRef = useRef<HTMLTextAreaElement | null>(null);
+  const richAgentInputRef = useRef<HTMLTextAreaElement | null>(null);
   const pasteCaptureRef = useRef<HTMLTextAreaElement | null>(null);
   const socketRef = useRef<WebSocket | null>(null);
   const terminalRef = useRef<Terminal | null>(null);
@@ -77,8 +89,28 @@ export function TerminalPane({
   const [agentInputComposerMode, setAgentInputComposerMode] = useState<AgentInputComposerMode>(() =>
     agentInputDraft ? "open" : "closed",
   );
+  const [richInputMode, setRichInputMode] = useState<RichAgentInputMode>("message");
+  const [richOutputMode, setRichOutputMode] = useState(loadRichAgentOutputMode);
+  const [richOutput, setRichOutput] = useState<RichTerminalOutput>([]);
+  const [richLogText, setRichLogText] = useState("");
+  const richLogCollectorRef = useRef(createTerminalLogCollector());
+  const isRichAgentView = displayKind === "agent" && agentViewMode === "rich";
+  const isRichAgentViewRef = useRef(isRichAgentView);
+  const richOutputModeRef = useRef(richOutputMode);
+  isRichAgentViewRef.current = isRichAgentView;
+  richOutputModeRef.current = richOutputMode;
 
   const input = useTerminalInput({ socketRef, terminalDebugRef, terminalRef, setStatus });
+  const updateRichOutput = useCallback((terminal: Terminal) => {
+    if (isRichAgentViewRef.current && richOutputModeRef.current === "screen") {
+      setRichOutput(richTerminalOutput(terminal));
+    }
+  }, []);
+  const updateRichLog = useCallback((data: string, behavior: "append" | "replace") => {
+    const collector = richLogCollectorRef.current;
+    const nextLog = behavior === "replace" ? collector.replay(data) : collector.append(data);
+    if (isRichAgentViewRef.current && richOutputModeRef.current === "log") setRichLogText(nextLog);
+  }, []);
   const selection = useTerminalSelection({ containerRef, stageRef, terminalRef, setStatus });
   const openActionMenu = useCallback((x: number, y: number) => {
     const nextX = Math.max(8, Math.min(x, window.innerWidth - ACTION_MENU_WIDTH_PX - 8));
@@ -127,11 +159,42 @@ export function TerminalPane({
     input.focusTerminal();
   }, [agentInputDraft, input.focusTerminal, input.sendTerminalInput, onAgentComposerClosed, sessionId]);
 
+  const submitRichAgentMessage = useCallback(() => {
+    if (!sessionId || !agentInputDraft) return;
+    const data = agentInputSubmission(
+      agentInputDraft,
+      terminalRef.current?.modes.bracketedPasteMode ?? false,
+    );
+    if (!input.sendTerminalInput(data)) return;
+    clearAgentInputDraft(sessionId);
+    setAgentInputDraft("");
+    window.setTimeout(() => richAgentInputRef.current?.focus(), 0);
+  }, [agentInputDraft, input.sendTerminalInput, sessionId]);
+
+  const toggleRichInputMode = useCallback(() => {
+    setRichInputMode((current) => current === "message" ? "keystroke" : "message");
+    window.setTimeout(() => richAgentInputRef.current?.focus(), 0);
+  }, []);
+
+  const changeRichOutputMode = useCallback((mode: RichAgentOutputMode) => {
+    setRichOutputMode(mode);
+    saveRichAgentOutputMode(mode);
+    if (mode === "log") setRichLogText(richLogCollectorRef.current.value());
+    else if (terminalRef.current) setRichOutput(richTerminalOutput(terminalRef.current));
+  }, []);
+
   useEffect(() => {
-    if (displayKind !== "agent" || !isAgentComposerRequested) return;
+    if (!isRichAgentView || !terminalRef.current) return;
+    setRichOutput(richTerminalOutput(terminalRef.current));
+    if (richOutputModeRef.current === "log") setRichLogText(richLogCollectorRef.current.value());
+    window.setTimeout(() => richAgentInputRef.current?.focus(), 0);
+  }, [isRichAgentView]);
+
+  useEffect(() => {
+    if (displayKind !== "agent" || isRichAgentView || !isAgentComposerRequested) return;
     closeActionMenu();
     setAgentInputComposerMode("open");
-  }, [displayKind, isAgentComposerRequested]);
+  }, [displayKind, isAgentComposerRequested, isRichAgentView]);
 
   useEffect(() => {
     if (agentInputComposerMode !== "open") return;
@@ -239,6 +302,8 @@ export function TerminalPane({
       updateCtrlActive: input.updateCtrlActive,
       updateTerminalSelectionHandles: selection.updateSelectionHandles,
     },
+    onTerminalData: updateRichLog,
+    onTerminalRender: updateRichOutput,
     onUnauthorized,
     refs: {
       arrowGestureRef: arrow.arrowGestureRef,
@@ -269,46 +334,67 @@ export function TerminalPane({
   const connectionStatus = status ? null : terminalConnectionStatusText(displayKind, connectionPhase);
 
   return (
-    <div className="tool-panel terminal-pane" ref={rootRef}>
+    <div className={`tool-panel terminal-pane ${isRichAgentView ? "rich-agent-pane" : ""}`} ref={rootRef}>
       <TerminalStatus message={status} onCreate={onOpenCreateSheet} onRetry={retryConnection} />
       <div
-        className="terminal-stage"
+        className={`terminal-stage ${isRichAgentView ? "rich-agent-stage" : ""}`}
         ref={stageRef}
-        onContextMenu={handleContextMenu}
-        onPointerCancel={arrow.handlePointerCancel}
-        onPointerDown={arrow.handlePointerDown}
-        onPointerLeave={arrow.handlePointerLeave}
-        onPointerMove={arrow.handlePointerMove}
-        onPointerUp={arrow.handlePointerEnd}
+        onContextMenu={isRichAgentView ? undefined : handleContextMenu}
+        onPointerCancel={isRichAgentView ? undefined : arrow.handlePointerCancel}
+        onPointerDown={isRichAgentView ? undefined : arrow.handlePointerDown}
+        onPointerLeave={isRichAgentView ? undefined : arrow.handlePointerLeave}
+        onPointerMove={isRichAgentView ? undefined : arrow.handlePointerMove}
+        onPointerUp={isRichAgentView ? undefined : arrow.handlePointerEnd}
       >
-        <div className="terminal-host" ref={containerRef} />
+        <div className={`terminal-host ${isRichAgentView ? "rich-agent-terminal-source" : ""}`} ref={containerRef} />
+        {isRichAgentView ? (
+          <RichAgentView
+            draft={agentInputDraft}
+            inputMode={richInputMode}
+            inputRef={richAgentInputRef}
+            logText={richLogText}
+            onChangeDraft={updateAgentInputDraft}
+            onOutputModeChange={changeRichOutputMode}
+            onSendImmediate={(data) => input.sendTerminalInput(data)}
+            onSendMessage={submitRichAgentMessage}
+            onToggleInputMode={toggleRichInputMode}
+            output={richOutput}
+            outputMode={richOutputMode}
+          />
+        ) : null}
         <TerminalConnectionStatus message={connectionStatus} />
-        <TerminalSelectionHandles
-          bufferLength={terminalRef.current?.buffer.active.length ?? 0}
-          handles={selection.selectionHandles}
-          onBeginDrag={selection.beginHandleDrag}
-        />
-        <TerminalArrowGesture overlay={arrow.arrowOverlay} />
+        {isRichAgentView ? null : (
+          <>
+            <TerminalSelectionHandles
+              bufferLength={terminalRef.current?.buffer.active.length ?? 0}
+              handles={selection.selectionHandles}
+              onBeginDrag={selection.beginHandleDrag}
+            />
+            <TerminalArrowGesture overlay={arrow.arrowOverlay} />
+          </>
+        )}
       </div>
-      <TerminalActionMenu
-        isPasteCaptureVisible={isPasteCaptureVisible}
-        menu={actionMenu}
-        menuRef={actionMenuRef}
-        onCopy={() => {
-          closeActionMenu();
-          void selection.copySelection();
-        }}
-        onPaste={() => void pasteFromClipboard()}
-        onPasteCaptureInput={handlePasteCaptureInput}
-        onPasteCapturePaste={handlePasteCapturePaste}
-        onSelect={selectWordFromMenu}
-        onSelectAll={() => {
-          selection.selectAll();
-          setActionMenu(null);
-        }}
-        pasteCaptureRef={pasteCaptureRef}
-      />
-      {displayKind === "agent" ? (
+      {isRichAgentView ? null : (
+        <TerminalActionMenu
+          isPasteCaptureVisible={isPasteCaptureVisible}
+          menu={actionMenu}
+          menuRef={actionMenuRef}
+          onCopy={() => {
+            closeActionMenu();
+            void selection.copySelection();
+          }}
+          onPaste={() => void pasteFromClipboard()}
+          onPasteCaptureInput={handlePasteCaptureInput}
+          onPasteCapturePaste={handlePasteCapturePaste}
+          onSelect={selectWordFromMenu}
+          onSelectAll={() => {
+            selection.selectAll();
+            setActionMenu(null);
+          }}
+          pasteCaptureRef={pasteCaptureRef}
+        />
+      )}
+      {displayKind === "agent" && !isRichAgentView ? (
         <AgentInputComposer
           draft={agentInputDraft}
           mode={agentInputComposerMode}
@@ -320,12 +406,14 @@ export function TerminalPane({
           textareaRef={agentInputRef}
         />
       ) : null}
-      <TerminalKeybar
-        isCtrlActive={input.isCtrlActive}
-        onClick={input.handleToolbarClick}
-        onPreserveFocus={input.preserveTerminalFocus}
-        onTouchEnd={input.handleToolbarTouchEnd}
-      />
+      {isRichAgentView ? null : (
+        <TerminalKeybar
+          isCtrlActive={input.isCtrlActive}
+          onClick={input.handleToolbarClick}
+          onPreserveFocus={input.preserveTerminalFocus}
+          onTouchEnd={input.handleToolbarTouchEnd}
+        />
+      )}
     </div>
   );
 }

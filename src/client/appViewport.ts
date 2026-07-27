@@ -8,6 +8,7 @@ interface AppViewportWindow {
   innerHeight: number;
   visualViewport?: {
     height: number;
+    offsetTop: number;
     addEventListener: (type: "resize" | "scroll", listener: () => void) => void;
     removeEventListener: (type: "resize" | "scroll", listener: () => void) => void;
   } | null;
@@ -17,8 +18,11 @@ interface AppViewportWindow {
 
 export function installAppViewportHeightSync(windowLike: AppViewportWindow, target: AppViewportTarget): () => void {
   const sync = () => {
-    const height = windowLike.visualViewport?.height ?? windowLike.innerHeight;
+    const viewport = windowLike.visualViewport;
+    const height = viewport?.height ?? windowLike.innerHeight;
+    const offsetTop = viewport?.offsetTop ?? 0;
     target.style.setProperty("--app-viewport-height", `${height}px`);
+    target.style.setProperty("--app-viewport-offset-top", `${offsetTop}px`);
   };
 
   sync();

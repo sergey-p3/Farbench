@@ -1,5 +1,6 @@
 :root {
   --app-viewport-height: 100vh;
+  --app-viewport-offset-top: 0px;
   color: #1f2933;
   background: #eef1f4;
   font-family:
@@ -18,12 +19,15 @@ html {
 }
 
 body {
+  bottom: auto;
   height: var(--app-viewport-height);
-  inset: 0;
+  left: 0;
   margin: 0;
   min-width: 320px;
   overflow: hidden;
   position: fixed;
+  right: 0;
+  top: var(--app-viewport-offset-top);
   width: 100%;
 }
 

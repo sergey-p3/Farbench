@@ -3,6 +3,7 @@ import { activeItem } from "../itemLayout.js";
 import { ItemRenderer } from "./ItemRenderer.js";
 
 interface PaneHostProps {
+  agentViewMode: "rich" | "terminal";
   agentComposerSessionId: string | null;
   layout: BrowserLayout;
   onCloseAgentComposer: (sessionId: string) => void;
@@ -12,6 +13,7 @@ interface PaneHostProps {
 }
 
 export function PaneHost({
+  agentViewMode,
   agentComposerSessionId,
   layout,
   onCloseAgentComposer,
@@ -25,6 +27,7 @@ export function PaneHost({
   return (
     <section className="pane-host" aria-label="Focused item">
       <ItemRenderer
+        agentViewMode={agentViewMode}
         isAgentComposerRequested={matchedItem?.sessionId === agentComposerSessionId}
         item={matchedItem}
         key={matchedItem?.id ?? "empty"}

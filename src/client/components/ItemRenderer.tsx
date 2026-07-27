@@ -5,6 +5,7 @@ import { PreviewPanel } from "./PreviewPanel.js";
 import { TerminalPane } from "./TerminalPane.js";
 
 interface ItemRendererProps {
+  agentViewMode: "rich" | "terminal";
   isAgentComposerRequested: boolean;
   item: WorkspaceItem | null;
   onCloseAgentComposer: (sessionId: string) => void;
@@ -14,6 +15,7 @@ interface ItemRendererProps {
 }
 
 export function ItemRenderer({
+  agentViewMode,
   isAgentComposerRequested,
   item,
   onCloseAgentComposer,
@@ -43,6 +45,7 @@ export function ItemRenderer({
   if (item.kind === "terminal" || item.kind === "agent") {
     return (
       <TerminalPane
+        agentViewMode={item.kind === "agent" ? agentViewMode : "terminal"}
         displayKind={item.kind}
         isAgentComposerRequested={isAgentComposerRequested}
         sessionId={item.sessionId ?? null}

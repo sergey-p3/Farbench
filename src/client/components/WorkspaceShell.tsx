@@ -16,12 +16,14 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
       <section className={`workspace-panel focused-shell ${shell.isTopMenuPinned ? "top-menu-pinned" : "top-menu-floating"}`} aria-label="Workspace">
         <WorkspaceTopBar
           active={shell.active}
+          agentViewMode={shell.agentViewMode}
           isExpanded={shell.isTopMenuExpanded}
           isPinned={shell.isTopMenuPinned}
           onCreate={() => shell.setIsCreateOpen(true)}
           onOpenAgentInput={shell.openAgentComposer}
           onOpenSwitcher={() => shell.setIsSwitcherOpen(true)}
           onToggle={shell.toggleTopMenu}
+          onToggleAgentView={shell.toggleAgentViewMode}
           onTogglePin={shell.toggleTopMenuPin}
           workspace={shell.selectedWorkspace}
         />
@@ -33,6 +35,7 @@ export function WorkspaceShell({ onUnauthorized }: WorkspaceShellProps) {
         ) : null}
         {shell.isLoading ? <p className="loading-state">Loading workspace...</p> : null}
         <PaneHost
+          agentViewMode={shell.agentViewMode}
           agentComposerSessionId={shell.agentComposerSessionId}
           layout={shell.layout}
           onCloseAgentComposer={shell.closeAgentComposer}
